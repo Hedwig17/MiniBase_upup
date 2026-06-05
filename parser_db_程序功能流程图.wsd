@@ -1,0 +1,118 @@
+@startuml
+skinparam backgroundColor #FEFEFE
+skinparam activityBorderColor #2C3E50
+skinparam activityBackgroundColor #E8F0FE
+skinparam arrowColor #2C3E50
+skinparam defaultFontSize 11
+
+title parser_db.py —— 语法分析器程序功能流程图\n(实验2：DBMS的SQL语句解析)
+
+start
+
+:外部调用 set_handle();
+
+:yacc.yacc(write_tables=0)\n创建 LALR(1) 解析器;
+
+if (创建成功?) then (是)
+  :存入 common_db.global_parser;
+else (否)
+  :打印错误;
+  stop
+endif
+
+:外部调用\nglobal_parser.parse(sql_string);
+
+partition "LALR(1) 移进-归约解析" {
+
+  :lex 逐 token 送入解析器;
+
+  repeat
+    :读取下一个 token;
+
+    switch (匹配语法规则?)
+
+    case (顶层: Query → SFW)
+      :归约 p_expr_query();
+      :构建 AST 根节点\n存入 global_syn_tree;
+      note right
+        语法树结构:
+        Query → SFW
+        ├── SELECT
+        ├── SelList
+        ├── FROM
+        ├── FromList
+        ├── WHERE
+        └── Cond
+      end note
+
+    case (SFW 规则)
+      :归约 p_expr_swf():\nSELECT SelList FROM FromList WHERE Cond;
+      note right
+        ✓ 实验2 必做: select-from-where 骨架已实现
+        ——
+        ✗ <color:red>未实现！</color> Cond 仅支持单条件,
+        实验指导示例 select ... where
+        f1='xx' <color:red>and</color> f2=5
+        的 AND 组合无法解析
+      end note
+
+    case (SelList 规则)
+      if (后跟 COMMA?) then (是)
+        :归约 SelList →\nTCNAME COMMA SelList;
+      else (否)
+        :归约 SelList → TCNAME;
+      endif
+      note right
+        ✗ <color:red>未实现！</color>
+        实验2 必做要求支持:
+        select <color:red>*</color> from students
+        SelList 缺少 '*' 通配符规则
+      end note
+
+    case (FromList 规则)
+      if (后跟 COMMA?) then (是)
+        :归约 FromList →\nTCNAME COMMA FromList;
+      else (否)
+        :归约 FromList → TCNAME;
+      endif
+
+    case (Cond 规则)
+      :归约 Cond →\nTCNAME EQX CONSTANT;
+      note right
+        仅 field=value 单条件
+      end note
+
+    case (语法错误)
+      :触发 p_error();
+      :打印 "wrong at <token>";
+      note right
+        ✗ <color:red>未实现！</color> 实验2 选做全部缺失:
+        · CREATE TABLE courses(...)
+        · INSERT INTO courses VALUES(...)
+        · DELETE FROM courses
+        · UPDATE courses SET ... WHERE ...
+        · DROP TABLE takes
+        ——
+        无错误恢复，遇错即停
+      end note
+
+    endswitch
+
+  repeat while (还有 token?)
+  ->是;
+
+  :解析完成;
+
+  :调用 check_syn_tree(syn_tree);
+  note right
+    ✗ <color:red>未实现！</color>
+    函数体仅 pass，未做任何
+    语法树合法性校验
+  end note
+
+  :common_db.show()\n遍历打印 AST;
+}
+
+stop
+
+@enduml

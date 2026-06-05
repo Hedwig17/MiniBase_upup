@@ -1,0 +1,61 @@
+@startuml main_db 主程序功能流程图
+start
+:启动程序;
+:执行main()函数;
+:创建schemaObj对象
+(加载all.sch表结构);
+:显示主菜单(7个选项+退出);
+
+repeat :用户输入指令;
+    switch (指令选择)
+        case (1: 新增表结构+数据)
+            :输入表名;
+            if (表不存在) then (是)
+                :创建StorageObj对象;
+                :获取字段列表;
+                :调用schemaObj.appendTable() 写入表结构;
+            else (否)
+                :输入数据;
+                :调用StorageObj.insert_record() 插入数据;
+            endif
+        case (2: 删除表结构+数据)
+            :输入表名;
+            if (表存在) then (是)
+                :调用schemaObj.delete_table_schema() 删除结构;
+                :调用StorageObj.delete_table_data() 删除数据;
+            else (否)
+                :提示表不存在;
+            endif
+        case (3: 查看表结构+数据)
+            :输入表名;
+            if (表存在) then (是)
+                :调用schemaObj.viewTableStructure() 显示结构;
+                :调用StorageObj.show_table_data() 显示数据;
+            else (否)
+                :提示表不存在;
+            endif
+        case (4: 删除所有表+数据)
+            :遍历所有表名;
+            :调用StorageObj.delete_table_data() 清空数据;
+            :调用schemaObj.deleteAll() 清空表结构;
+        case (5: SQL查询(SELECT))
+            :输入SQL语句;
+            :词法/语法解析;
+            :生成执行计划;
+            :执行查询并输出结果;
+        case (6: 按条件删除行)
+            :输入表名+条件;
+            :根据字段关键字删除数据行;
+        case (7: 按条件更新行)
+            :输入表名+字段+新旧值;
+            :根据关键字更新数据行;
+        case (.: 退出程序)
+            :销毁schemaObj对象;
+            :关闭文件;
+            break
+    endswitch
+repeat while (持续操作)
+
+:程序结束;
+end
+@enduml

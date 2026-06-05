@@ -1,0 +1,27 @@
+@startuml Schema 初始化流程（init 构造函数）
+start
+:调用 __init__ 构造函数;
+:打开 all.sch 文件（rb+二进制模式）;
+:读取文件全部数据到缓冲区;
+if (缓冲区是否为空?) then (是)
+    :初始化 metaHead
+    False, 0, BODY_BEGIN_INDEX;
+    :写入metaHead到文件;
+    :创建空的 head_db.Header 对象;
+else (否)
+    :解析 metaHead
+    → isStored/表数量/body偏移;
+    if (isStored == False?) then (是)
+        :创建空Header对象;
+    else (否)
+        :循环解析 tableNameHead
+        → 表名、字段数、body偏移;
+        :循环解析 body 字段信息
+        → 字段名、类型、长度;
+        :组装内存结构 tableNames/tableFields;
+        :创建完整的 head_db.Header 对象;
+    endif
+endif
+:初始化完成;
+end
+@enduml

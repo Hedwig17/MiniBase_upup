@@ -1,0 +1,36 @@
+﻿@startuml Schema 类结构 + all.sch 文件存储结构
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+' 用Note清晰展示all.sch文件结构，避免类图语法冲突
+note as fileStructure
+  == all.sch 文件结构（固定格式） ==
+  * **META_HEAD**：12字节 | isStored(1B) + tableNum(4B) + offset(4B)
+  * **TABLE_NAME_HEAD**：100 × 18 字节 | 表名(10B) + 字段数(4B) + 偏移(4B)
+  * **BODY**：字段存储区 | 字段名(10B) + 类型(4B) + 长度(4B)
+end note
+
+' Schema类定义（完全匹配代码，修正类型声明）
+class Schema {
+    +fileName: String = "all.sch"
+    +count: Integer = 0
+    -fileObj: File
+    -headObj: Header
+    -body_begin_index: Integer
+
+    +how_many(): Integer
+    +viewTableNames(): void
+    +viewTableStructure(table_name): void
+    +__init__()
+    +__del__()
+    +deleteAll(): void
+    +appendTable(tableName, fieldList): void
+    +find_table(table_name): Boolean
+    +WriteBuff(): void
+    +delete_table_schema(table_name): Boolean
+    +get_table_name_list(): List<String>
+}
+
+' 依赖关系
+Schema --> Header : 依赖内存结构
+@enduml

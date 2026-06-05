@@ -1,0 +1,160 @@
+@startuml
+title storage_db.py 程序功能流程图
+
+start
+:创建 Storage(tablename);
+:去除表名首尾空白;
+:初始化 record_list 和 record_Position;
+
+if (tablename.dat 是否存在?) then (否)
+    :提示表文件不存在;
+    :创建空的 tablename.dat;
+    :关闭新建文件;
+    :open = False;
+else (是)
+endif
+
+:以 rb+ 打开 tablename.dat;
+:open = True;
+:读取第 0 块目录块 dir_buf;
+:初始化 field_name_list;
+
+if (第 0 块为空?) then (是)
+    :输入字段数量 num_of_fields;
+    if (num_of_fields > 0?) then (是)
+        :创建 4096 字节目录缓冲区;
+        :写入目录头\nblock_id=0\ndata_block_num=0\nnum_of_fields;
+
+        repeat
+            :输入字段名 field_name;
+            :字段名不足 10 字符则左侧补空格;
+
+            repeat
+                :输入字段类型 field_type\n0=str, 1=varstr, 2=int, 3=boolean;
+            repeat while (field_type 不在 0..3?) is (重新输入)
+
+            :输入字段长度 field_length;
+            :追加字段元组到 field_name_list;
+            :按 !10sii 写入字段名、类型、长度;
+        repeat while (还有未录入字段?) is (是)
+
+        :写回第 0 块目录信息;
+        :刷新文件;
+    else (否)
+        :不写入字段定义;
+    endif
+else (否)
+    :从第 0 块读取 block_id、data_block_num、num_of_fields;
+    :打印字段数和数据块数;
+
+    repeat
+        :按 !10sii 读取一个字段定义;
+        :追加到 field_name_list;
+        :打印字段信息;
+    repeat while (还有未读取字段?) is (是)
+endif
+
+:计算 record_head_len 和 record_content_len;
+:Flag = 1;
+
+while (Flag <= data_block_num?) is (是)
+    :读取第 Flag 个数据块;
+    :解析 block_id 和 Number_of_Records;
+    :打印数据块记录数;
+
+    if (Number_of_Records > 0?) then (是)
+        repeat
+            :记录位置 (Flag, i) 加入 record_Position;
+            :读取记录偏移 offset;
+            :读取记录内容 record;
+            :按字段长度切分记录值;
+            :int/bool 字段做类型转换;
+            :组装 tmpList 并加入 record_list;
+        repeat while (还有未解析记录?) is (是)
+    else (否)
+        :跳过空数据块;
+    endif
+
+    :Flag = Flag + 1;
+endwhile (否)
+
+partition "getRecord()" {
+    :返回 record_list;
+}
+
+partition "insert_record(insert_record)" {
+    :逐字段校验并清理输入;
+
+    if (字符串字段长度超限?) then (是)
+        :返回 False;
+        detach
+    else (否)
+    endif
+
+    if (int/bool 转换失败?) then (是)
+        :返回 False;
+        detach
+    else (否)
+    endif
+
+    :字段值按固定长度左侧补空格;
+    :拼接 inputstr;
+    :把转换后的 tmpRecord 加入 record_list;
+    :计算 record_len 和 MAX_RECORD_NUM;
+
+    if (record_Position 为空?) then (是)
+        :data_block_num 加 1;
+        :新记录位置为 (1, 0);
+    else (否)
+        if (最后一个数据块已满?) then (是)
+            :新记录写入下一个数据块第 0 条;
+            :data_block_num 加 1;
+        else (否)
+            :新记录写入当前数据块下一条;
+        endif
+    endif
+
+    :写回第 0 块中的 data_block_num;
+    :写回目标数据块头部记录数;
+    :计算并写入新记录 offset;
+    :写入记录头\nschema_address、record_content_len、update_time;
+    :写入记录内容 inputstr;
+    :刷新文件;
+    :返回 True;
+}
+
+partition "show_table_data()" {
+    :打印字段名表头;
+    :逐条打印 record_list 中的记录;
+}
+
+partition "delete_table_data(tableName)" {
+    if (文件仍处于打开状态?) then (是)
+        :关闭 f_handle;
+        :open = False;
+    else (否)
+    endif
+
+    if (tablename.dat 存在?) then (是)
+        :删除 tablename.dat;
+    else (否)
+    endif
+
+    :返回 True;
+}
+
+partition "getFieldList()" {
+    :返回 field_name_list;
+}
+
+partition "__del__()" {
+    if (文件仍处于打开状态?) then (是)
+        :写回 data_block_num;
+        :刷新文件;
+        :关闭文件;
+    else (否)
+    endif
+}
+
+stop
+@enduml

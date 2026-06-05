@@ -1,0 +1,39 @@
+@startuml
+' 迷你数据库：head_db.py 缓冲区管理核心流程图
+start
+' 1. 初始化流程
+:Header 构造函数初始化;
+:加载表元数据\n初始化缓冲区池\nbuffer_pool = [];
+:设置块大小=4096B\n最大缓存块数=10;
+
+' 2. 主操作：获取数据块
+:调用入口 get_block(block_id) 获取想要读取的数据块;
+:调用_find_block() 在缓冲区池中查找指定块号，return: 指定的块对象;
+if (缓存命中?) then (是)
+    :更新块访问时间\n钉住计数+1\n返回块对象;
+else (否)
+    :缓存未命中;
+    :调用 load_block_from_disk()\n从磁盘t1.dat读取块到内存缓存;
+    if (缓冲区已满?) then (是)
+        :调用 _lru_replace() 置换块;
+        :筛选未钉住块\n淘汰最久未使用块\n脏块自动写回磁盘;
+    else (否)
+        :无需置换;
+    endif
+    :新块加入缓冲区池\n钉住计数+1;
+    :返回块对象;
+endif
+
+' 3. 数据修改与释放
+:修改块数据;
+:调用 release_block() 释放块;
+:钉住计数-1\n标记脏位;
+
+' 4. 关闭/刷新流程
+if (程序关闭/手动刷新?) then (是)
+    :调用 flush_all_dirty_blocks()将所有脏块强制写回磁盘;
+    :所有脏块调用write_block_to_disk()\n写回磁盘;
+endif
+
+stop
+@enduml

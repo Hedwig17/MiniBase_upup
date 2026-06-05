@@ -1,0 +1,120 @@
+@startuml
+skinparam backgroundColor #FEFEFE
+skinparam activityBorderColor #2C3E50
+skinparam activityBackgroundColor #E8F0FE
+skinparam arrowColor #2C3E50
+skinparam defaultFontSize 11
+
+title query_plan_db.py —— 查询计划构造与执行流程图\n(实验2：DBMS的SQL语句解析)
+
+start
+
+partition "阶段一: 构造逻辑查询计划树 (construct_logical_tree)" {
+
+  :检查 global_syn_tree 是否存在;
+
+  if (存在?) then (否)
+    :打印 "no data in the syntax tree";
+    stop
+  else (是)
+
+    :extract_sfw_data()\n遍历语法树提取三个列表;
+    note right
+      parseNode 对象存储:
+      · sel_list  目标字段
+      · from_list 表名
+      · where_list 条件
+    end note
+
+    :过滤 sel_list / from_list\n中的逗号标记;
+
+    :construct_from_node(from_list)\n构建 FROM 子树;
+    if (from_list 长度?) then (=1)
+      :单表: Node('X', [表名]);
+    elseif (=2) then (是)
+      :双表: Node('X', [表1, 表2]);
+    else (>2)
+      :递归构建左深树\n左: construct_from_node(前n-1个)\n右: 最后一张表;
+      note right
+        ✗ <color:red>未实现！</color>
+        固定左深连接顺序,
+        无代价估算优化
+      end note
+    endif
+
+    :construct_where_node(from_node, where_list)\n添加 Filter 节点;
+    if (where_list 非空?) then (是)
+      :Node('Filter', [from_node], where_list);
+      note right
+        ✗ <color:red>未实现！</color>
+        · 仅单条件过滤
+        · 无 AND 组合过滤
+        (实验2 示例: f1='xx' and f2=5)
+        · 无谓词下推优化
+      end note
+    else (否)
+      :直接返回 from_node;
+    endif
+
+    :construct_select_node(wf_node, sel_list)\n添加 Proj 投影节点;
+
+    :结果存入\nglobal_logical_tree;
+  endif
+
+  note right
+    ✗ <color:red>未实现！</color> 缺少任何查询优化:
+    谓词下推 / 投影下推 / 连接重排序
+  end note
+
+}
+
+partition "阶段二: 执行查询计划 (execute_logical_tree)" {
+
+  :遍历逻辑树, 按层级分组节点;
+
+  :从叶子层 (最大 idx) 开始\n自底向上执行;
+
+  while (idx >= 0?) is (是)
+    if (叶子层且节点 > 1?) then (是)
+      :打开多张表的 Storage 对象;
+      :itertools.product 笛卡尔积;
+      note right
+        ✗ <color:red>未实现！</color>
+        仅笛卡尔积，无等值连接
+        或自然连接, 无索引加速
+      end note
+    elseif (叶子层且节点 = 1?) then (是)
+      :打开单表, 读取全部记录;
+
+    elseif (含 'X' 笛卡尔积标记?) then (是)
+      :中间结果 × 下一张表;
+
+    elseif (含 'Filter' 过滤?) then (是)
+      :GetFilterParam() 定位字段;
+      if (定位成功?) then (否)
+        :返回失败, 终止;
+      else (是)
+        :类型转换后逐行比较\n保留匹配行;
+      endif
+
+    elseif (含 'Proj' 投影?) then (是)
+      :GetFilterParam() 定位投影列;
+      :逐行裁剪, 构建表头;
+      :返回 (outPutField, current_list, True);
+    endif
+
+    :idx -= 1;
+
+  endwhile (否)
+
+  if (执行成功?) then (是)
+    :打印表头 + 逐行打印结果;
+  else (否)
+    :打印 "WRONG SQL INPUT!";
+  endif
+
+}
+
+stop
+
+@enduml

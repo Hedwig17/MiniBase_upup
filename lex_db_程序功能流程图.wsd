@@ -1,0 +1,95 @@
+@startuml
+skinparam backgroundColor #FEFEFE
+skinparam activityBorderColor #2C3E50
+skinparam activityBackgroundColor #E8F0FE
+skinparam arrowColor #2C3E50
+skinparam defaultFontSize 11
+
+title lex_db.py —— 词法分析器程序功能流程图\n(实验2：DBMS的SQL语句解析)
+
+start
+
+:set_lex_handle() 被调用;
+
+:创建 PLY lex 对象\nlex.lex();
+
+if (创建成功?) then (是)
+  :赋值给\ncommon_db.global_lexer;
+else (否)
+  :打印错误;
+  stop
+endif
+
+:外部调用\nglobal_lexer.input(sql_string);
+
+partition "PLY 逐字符扫描 (最长匹配优先)" {
+
+  repeat
+    :读取字符流当前位置;
+
+    :按定义顺序尝试所有 token 规则;
+
+    switch (匹配结果)
+
+    case (t_SPACE: \\s+)
+      :pass，丢弃空白;
+
+    case (t_SELECT / t_FROM\n/ t_WHERE / t_AND)
+      :返回关键字 token;
+      note right
+        ✓ 实验2 必做已覆盖
+        ——
+        ✗ <color:red>未实现！</color>
+        实验2 选做 缺少关键字 token:
+        CREATE, TABLE, INSERT,
+        INTO, VALUES, DELETE,
+        UPDATE, SET, DROP,
+        CHAR, INTEGER
+      end note
+
+    case (t_TCNAME:\n[A-Z_a-z]\\w*)
+      :返回标识符 token\n(表名 / 列名);
+
+    case (t_COMMA: ,)
+      :返回逗号 token;
+
+    case (t_EQX: =)
+      :返回等号 token;
+      note right
+        ✗ <color:red>未实现！</color>
+        缺 < > <= >= != <>
+        实验2 选做 UPDATE SET
+        和 CREATE TABLE 需 ( )
+      end note
+
+    case (t_CONSTANT:\n\\d+ | '\\w+')
+      :返回常量 token;
+      note right
+        ✓ 支持: 整数, '单引号单词语'
+        ——
+        ✗ <color:red>未实现！</color>
+        · 不含空格 → 'database system' 无法识别
+        · 不含双引号字符串
+        · 不含浮点数
+      end note
+
+    case (无规则匹配)
+      :触发 t_error();
+      :打印 "wrong";
+      note right
+        ✗ <color:red>未实现！</color>
+        无错误恢复, 遇非法字符直接退出
+      end note
+
+    endswitch
+
+  repeat while (还有字符?)
+  ->是;
+  :扫描完成, 返回 None;
+}
+
+:外部逐 token 获取\nwhile lexer.token() is not None;
+
+stop
+
+@enduml
