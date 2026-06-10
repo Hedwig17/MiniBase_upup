@@ -3,12 +3,8 @@ Created by PLY version 3.11 (http://www.dabeaz.com/ply)
 Unused terminals:
 
     AND
-    DELETE
-    DROP
-    SEMICOLON
-    SET
     SPACE
-    UPDATE
+    VARSTR
 
 Grammar
 
@@ -16,67 +12,79 @@ Rule 0     S' -> Statement
 Rule 1     Statement -> Query
 Rule 2     Statement -> CreateStmt
 Rule 3     Statement -> InsertStmt
-Rule 4     Query -> SFW
-Rule 5     SFW -> SELECT SelList FROM FromList WHERE Cond
-Rule 6     SFW -> SELECT SelList FROM FromList
-Rule 7     SelList -> STAR
-Rule 8     SelList -> TCNAME COMMA SelList
-Rule 9     SelList -> TCNAME
-Rule 10    FromList -> TCNAME COMMA FromList
-Rule 11    FromList -> TCNAME
-Rule 12    Cond -> TCNAME EQX CONSTANT
-Rule 13    CreateStmt -> CREATE TABLE TCNAME LPAREN FieldDefList RPAREN
-Rule 14    FieldDefList -> FieldDef
-Rule 15    FieldDefList -> FieldDef COMMA FieldDefList
-Rule 16    FieldDef -> TCNAME TypeDef
-Rule 17    TypeDef -> CHAR LPAREN CONSTANT RPAREN
-Rule 18    TypeDef -> INTEGER
-Rule 19    InsertStmt -> INSERT INTO TCNAME VALUES LPAREN ValueList RPAREN
-Rule 20    ValueList -> CONSTANT
-Rule 21    ValueList -> CONSTANT COMMA ValueList
+Rule 4     Statement -> DeleteStmt
+Rule 5     Statement -> UpdateStmt
+Rule 6     Statement -> DropStmt
+Rule 7     Query -> SFW
+Rule 8     SFW -> SELECT SelList FROM FromList WHERE Cond
+Rule 9     SFW -> SELECT SelList FROM FromList
+Rule 10    SelList -> TCNAME COMMA SelList
+Rule 11    SelList -> TCNAME
+Rule 12    SelList -> STAR
+Rule 13    FromList -> TCNAME COMMA FromList
+Rule 14    FromList -> TCNAME
+Rule 15    Cond -> TCNAME EQX CONSTANT
+Rule 16    CreateStmt -> CREATE TABLE TCNAME LPAREN FieldDefList RPAREN
+Rule 17    FieldDefList -> FieldDef
+Rule 18    FieldDefList -> FieldDef COMMA FieldDefList
+Rule 19    FieldDef -> TCNAME TypeDef
+Rule 20    TypeDef -> CHAR LPAREN CONSTANT RPAREN
+Rule 21    TypeDef -> INTEGER
+Rule 22    InsertStmt -> INSERT INTO TCNAME VALUES LPAREN ValueList RPAREN
+Rule 23    ValueList -> CONSTANT
+Rule 24    ValueList -> CONSTANT COMMA ValueList
+Rule 25    DeleteStmt -> DELETE FROM TCNAME
+Rule 26    UpdateStmt -> UPDATE TCNAME SET AssignList WHERE Cond
+Rule 27    AssignList -> TCNAME EQX CONSTANT
+Rule 28    AssignList -> TCNAME EQX CONSTANT COMMA AssignList
+Rule 29    DropStmt -> DROP TABLE TCNAME
 
 Terminals, with rules where they appear
 
 AND                  : 
-CHAR                 : 17
-COMMA                : 8 10 15 21
-CONSTANT             : 12 17 20 21
-CREATE               : 13
-DELETE               : 
-DROP                 : 
-EQX                  : 12
-FROM                 : 5 6
-INSERT               : 19
-INTEGER              : 18
-INTO                 : 19
-LPAREN               : 13 17 19
-RPAREN               : 13 17 19
-SELECT               : 5 6
-SEMICOLON            : 
-SET                  : 
+CHAR                 : 20
+COMMA                : 10 13 18 24 28
+CONSTANT             : 15 20 23 24 27 28
+CREATE               : 16
+DELETE               : 25
+DROP                 : 29
+EQX                  : 15 27 28
+FROM                 : 8 9 25
+INSERT               : 22
+INTEGER              : 21
+INTO                 : 22
+LPAREN               : 16 20 22
+RPAREN               : 16 20 22
+SELECT               : 8 9
+SET                  : 26
 SPACE                : 
-STAR                 : 7
-TABLE                : 13
-TCNAME               : 8 9 10 11 12 13 16 19
-UPDATE               : 
-VALUES               : 19
-WHERE                : 5
+STAR                 : 12
+TABLE                : 16 29
+TCNAME               : 10 11 13 14 15 16 19 22 25 26 27 28 29
+UPDATE               : 26
+VALUES               : 22
+VARSTR               : 
+WHERE                : 8 26
 error                : 
 
 Nonterminals, with rules where they appear
 
-Cond                 : 5
+AssignList           : 26 28
+Cond                 : 8 26
 CreateStmt           : 2
-FieldDef             : 14 15
-FieldDefList         : 13 15
-FromList             : 5 6 10
+DeleteStmt           : 4
+DropStmt             : 6
+FieldDef             : 17 18
+FieldDefList         : 16 18
+FromList             : 8 9 13
 InsertStmt           : 3
 Query                : 1
-SFW                  : 4
-SelList              : 5 6 8
+SFW                  : 7
+SelList              : 8 9 10
 Statement            : 0
-TypeDef              : 16
-ValueList            : 19 21
+TypeDef              : 19
+UpdateStmt           : 5
+ValueList            : 22 24
 
 Parsing method: LALR
 
@@ -86,21 +94,33 @@ state 0
     (1) Statement -> . Query
     (2) Statement -> . CreateStmt
     (3) Statement -> . InsertStmt
-    (4) Query -> . SFW
-    (13) CreateStmt -> . CREATE TABLE TCNAME LPAREN FieldDefList RPAREN
-    (19) InsertStmt -> . INSERT INTO TCNAME VALUES LPAREN ValueList RPAREN
-    (5) SFW -> . SELECT SelList FROM FromList WHERE Cond
-    (6) SFW -> . SELECT SelList FROM FromList
+    (4) Statement -> . DeleteStmt
+    (5) Statement -> . UpdateStmt
+    (6) Statement -> . DropStmt
+    (7) Query -> . SFW
+    (16) CreateStmt -> . CREATE TABLE TCNAME LPAREN FieldDefList RPAREN
+    (22) InsertStmt -> . INSERT INTO TCNAME VALUES LPAREN ValueList RPAREN
+    (25) DeleteStmt -> . DELETE FROM TCNAME
+    (26) UpdateStmt -> . UPDATE TCNAME SET AssignList WHERE Cond
+    (29) DropStmt -> . DROP TABLE TCNAME
+    (8) SFW -> . SELECT SelList FROM FromList WHERE Cond
+    (9) SFW -> . SELECT SelList FROM FromList
 
-    CREATE          shift and go to state 6
-    INSERT          shift and go to state 7
-    SELECT          shift and go to state 8
+    CREATE          shift and go to state 9
+    INSERT          shift and go to state 10
+    DELETE          shift and go to state 11
+    UPDATE          shift and go to state 12
+    DROP            shift and go to state 13
+    SELECT          shift and go to state 14
 
     Statement                      shift and go to state 1
     Query                          shift and go to state 2
     CreateStmt                     shift and go to state 3
     InsertStmt                     shift and go to state 4
-    SFW                            shift and go to state 5
+    DeleteStmt                     shift and go to state 5
+    UpdateStmt                     shift and go to state 6
+    DropStmt                       shift and go to state 7
+    SFW                            shift and go to state 8
 
 state 1
 
@@ -131,357 +151,509 @@ state 4
 
 state 5
 
-    (4) Query -> SFW .
+    (4) Statement -> DeleteStmt .
 
-    $end            reduce using rule 4 (Query -> SFW .)
+    $end            reduce using rule 4 (Statement -> DeleteStmt .)
 
 
 state 6
 
-    (13) CreateStmt -> CREATE . TABLE TCNAME LPAREN FieldDefList RPAREN
+    (5) Statement -> UpdateStmt .
 
-    TABLE           shift and go to state 9
+    $end            reduce using rule 5 (Statement -> UpdateStmt .)
 
 
 state 7
 
-    (19) InsertStmt -> INSERT . INTO TCNAME VALUES LPAREN ValueList RPAREN
+    (6) Statement -> DropStmt .
 
-    INTO            shift and go to state 10
+    $end            reduce using rule 6 (Statement -> DropStmt .)
 
 
 state 8
 
-    (5) SFW -> SELECT . SelList FROM FromList WHERE Cond
-    (6) SFW -> SELECT . SelList FROM FromList
-    (7) SelList -> . STAR
-    (8) SelList -> . TCNAME COMMA SelList
-    (9) SelList -> . TCNAME
+    (7) Query -> SFW .
 
-    STAR            shift and go to state 12
-    TCNAME          shift and go to state 13
+    $end            reduce using rule 7 (Query -> SFW .)
 
-    SelList                        shift and go to state 11
 
 state 9
 
-    (13) CreateStmt -> CREATE TABLE . TCNAME LPAREN FieldDefList RPAREN
+    (16) CreateStmt -> CREATE . TABLE TCNAME LPAREN FieldDefList RPAREN
 
-    TCNAME          shift and go to state 14
+    TABLE           shift and go to state 15
 
 
 state 10
 
-    (19) InsertStmt -> INSERT INTO . TCNAME VALUES LPAREN ValueList RPAREN
+    (22) InsertStmt -> INSERT . INTO TCNAME VALUES LPAREN ValueList RPAREN
 
-    TCNAME          shift and go to state 15
+    INTO            shift and go to state 16
 
 
 state 11
 
-    (5) SFW -> SELECT SelList . FROM FromList WHERE Cond
-    (6) SFW -> SELECT SelList . FROM FromList
+    (25) DeleteStmt -> DELETE . FROM TCNAME
 
-    FROM            shift and go to state 16
+    FROM            shift and go to state 17
 
 
 state 12
 
-    (7) SelList -> STAR .
+    (26) UpdateStmt -> UPDATE . TCNAME SET AssignList WHERE Cond
 
-    FROM            reduce using rule 7 (SelList -> STAR .)
+    TCNAME          shift and go to state 18
 
 
 state 13
 
-    (8) SelList -> TCNAME . COMMA SelList
-    (9) SelList -> TCNAME .
+    (29) DropStmt -> DROP . TABLE TCNAME
 
-    COMMA           shift and go to state 17
-    FROM            reduce using rule 9 (SelList -> TCNAME .)
+    TABLE           shift and go to state 19
 
 
 state 14
 
-    (13) CreateStmt -> CREATE TABLE TCNAME . LPAREN FieldDefList RPAREN
+    (8) SFW -> SELECT . SelList FROM FromList WHERE Cond
+    (9) SFW -> SELECT . SelList FROM FromList
+    (10) SelList -> . TCNAME COMMA SelList
+    (11) SelList -> . TCNAME
+    (12) SelList -> . STAR
 
-    LPAREN          shift and go to state 18
+    TCNAME          shift and go to state 21
+    STAR            shift and go to state 22
 
+    SelList                        shift and go to state 20
 
 state 15
 
-    (19) InsertStmt -> INSERT INTO TCNAME . VALUES LPAREN ValueList RPAREN
+    (16) CreateStmt -> CREATE TABLE . TCNAME LPAREN FieldDefList RPAREN
 
-    VALUES          shift and go to state 19
+    TCNAME          shift and go to state 23
 
 
 state 16
 
-    (5) SFW -> SELECT SelList FROM . FromList WHERE Cond
-    (6) SFW -> SELECT SelList FROM . FromList
-    (10) FromList -> . TCNAME COMMA FromList
-    (11) FromList -> . TCNAME
+    (22) InsertStmt -> INSERT INTO . TCNAME VALUES LPAREN ValueList RPAREN
 
-    TCNAME          shift and go to state 21
+    TCNAME          shift and go to state 24
 
-    FromList                       shift and go to state 20
 
 state 17
 
-    (8) SelList -> TCNAME COMMA . SelList
-    (7) SelList -> . STAR
-    (8) SelList -> . TCNAME COMMA SelList
-    (9) SelList -> . TCNAME
+    (25) DeleteStmt -> DELETE FROM . TCNAME
 
-    STAR            shift and go to state 12
-    TCNAME          shift and go to state 13
+    TCNAME          shift and go to state 25
 
-    SelList                        shift and go to state 22
 
 state 18
 
-    (13) CreateStmt -> CREATE TABLE TCNAME LPAREN . FieldDefList RPAREN
-    (14) FieldDefList -> . FieldDef
-    (15) FieldDefList -> . FieldDef COMMA FieldDefList
-    (16) FieldDef -> . TCNAME TypeDef
+    (26) UpdateStmt -> UPDATE TCNAME . SET AssignList WHERE Cond
 
-    TCNAME          shift and go to state 23
+    SET             shift and go to state 26
 
-    FieldDefList                   shift and go to state 24
-    FieldDef                       shift and go to state 25
 
 state 19
 
-    (19) InsertStmt -> INSERT INTO TCNAME VALUES . LPAREN ValueList RPAREN
+    (29) DropStmt -> DROP TABLE . TCNAME
 
-    LPAREN          shift and go to state 26
+    TCNAME          shift and go to state 27
 
 
 state 20
 
-    (5) SFW -> SELECT SelList FROM FromList . WHERE Cond
-    (6) SFW -> SELECT SelList FROM FromList .
+    (8) SFW -> SELECT SelList . FROM FromList WHERE Cond
+    (9) SFW -> SELECT SelList . FROM FromList
 
-    WHERE           shift and go to state 27
-    $end            reduce using rule 6 (SFW -> SELECT SelList FROM FromList .)
+    FROM            shift and go to state 28
 
 
 state 21
 
-    (10) FromList -> TCNAME . COMMA FromList
-    (11) FromList -> TCNAME .
+    (10) SelList -> TCNAME . COMMA SelList
+    (11) SelList -> TCNAME .
 
-    COMMA           shift and go to state 28
-    WHERE           reduce using rule 11 (FromList -> TCNAME .)
-    $end            reduce using rule 11 (FromList -> TCNAME .)
+    COMMA           shift and go to state 29
+    FROM            reduce using rule 11 (SelList -> TCNAME .)
 
 
 state 22
 
-    (8) SelList -> TCNAME COMMA SelList .
+    (12) SelList -> STAR .
 
-    FROM            reduce using rule 8 (SelList -> TCNAME COMMA SelList .)
+    FROM            reduce using rule 12 (SelList -> STAR .)
 
 
 state 23
 
-    (16) FieldDef -> TCNAME . TypeDef
-    (17) TypeDef -> . CHAR LPAREN CONSTANT RPAREN
-    (18) TypeDef -> . INTEGER
+    (16) CreateStmt -> CREATE TABLE TCNAME . LPAREN FieldDefList RPAREN
 
-    CHAR            shift and go to state 30
-    INTEGER         shift and go to state 31
+    LPAREN          shift and go to state 30
 
-    TypeDef                        shift and go to state 29
 
 state 24
 
-    (13) CreateStmt -> CREATE TABLE TCNAME LPAREN FieldDefList . RPAREN
+    (22) InsertStmt -> INSERT INTO TCNAME . VALUES LPAREN ValueList RPAREN
 
-    RPAREN          shift and go to state 32
+    VALUES          shift and go to state 31
 
 
 state 25
 
-    (14) FieldDefList -> FieldDef .
-    (15) FieldDefList -> FieldDef . COMMA FieldDefList
+    (25) DeleteStmt -> DELETE FROM TCNAME .
 
-    RPAREN          reduce using rule 14 (FieldDefList -> FieldDef .)
-    COMMA           shift and go to state 33
+    $end            reduce using rule 25 (DeleteStmt -> DELETE FROM TCNAME .)
 
 
 state 26
 
-    (19) InsertStmt -> INSERT INTO TCNAME VALUES LPAREN . ValueList RPAREN
-    (20) ValueList -> . CONSTANT
-    (21) ValueList -> . CONSTANT COMMA ValueList
+    (26) UpdateStmt -> UPDATE TCNAME SET . AssignList WHERE Cond
+    (27) AssignList -> . TCNAME EQX CONSTANT
+    (28) AssignList -> . TCNAME EQX CONSTANT COMMA AssignList
 
-    CONSTANT        shift and go to state 35
+    TCNAME          shift and go to state 32
 
-    ValueList                      shift and go to state 34
+    AssignList                     shift and go to state 33
 
 state 27
 
-    (5) SFW -> SELECT SelList FROM FromList WHERE . Cond
-    (12) Cond -> . TCNAME EQX CONSTANT
+    (29) DropStmt -> DROP TABLE TCNAME .
 
-    TCNAME          shift and go to state 37
+    $end            reduce using rule 29 (DropStmt -> DROP TABLE TCNAME .)
 
-    Cond                           shift and go to state 36
 
 state 28
 
-    (10) FromList -> TCNAME COMMA . FromList
-    (10) FromList -> . TCNAME COMMA FromList
-    (11) FromList -> . TCNAME
+    (8) SFW -> SELECT SelList FROM . FromList WHERE Cond
+    (9) SFW -> SELECT SelList FROM . FromList
+    (13) FromList -> . TCNAME COMMA FromList
+    (14) FromList -> . TCNAME
 
-    TCNAME          shift and go to state 21
+    TCNAME          shift and go to state 35
 
-    FromList                       shift and go to state 38
+    FromList                       shift and go to state 34
 
 state 29
 
-    (16) FieldDef -> TCNAME TypeDef .
+    (10) SelList -> TCNAME COMMA . SelList
+    (10) SelList -> . TCNAME COMMA SelList
+    (11) SelList -> . TCNAME
+    (12) SelList -> . STAR
 
-    COMMA           reduce using rule 16 (FieldDef -> TCNAME TypeDef .)
-    RPAREN          reduce using rule 16 (FieldDef -> TCNAME TypeDef .)
+    TCNAME          shift and go to state 21
+    STAR            shift and go to state 22
 
+    SelList                        shift and go to state 36
 
 state 30
 
-    (17) TypeDef -> CHAR . LPAREN CONSTANT RPAREN
+    (16) CreateStmt -> CREATE TABLE TCNAME LPAREN . FieldDefList RPAREN
+    (17) FieldDefList -> . FieldDef
+    (18) FieldDefList -> . FieldDef COMMA FieldDefList
+    (19) FieldDef -> . TCNAME TypeDef
 
-    LPAREN          shift and go to state 39
+    TCNAME          shift and go to state 37
 
+    FieldDefList                   shift and go to state 38
+    FieldDef                       shift and go to state 39
 
 state 31
 
-    (18) TypeDef -> INTEGER .
+    (22) InsertStmt -> INSERT INTO TCNAME VALUES . LPAREN ValueList RPAREN
 
-    COMMA           reduce using rule 18 (TypeDef -> INTEGER .)
-    RPAREN          reduce using rule 18 (TypeDef -> INTEGER .)
+    LPAREN          shift and go to state 40
 
 
 state 32
 
-    (13) CreateStmt -> CREATE TABLE TCNAME LPAREN FieldDefList RPAREN .
+    (27) AssignList -> TCNAME . EQX CONSTANT
+    (28) AssignList -> TCNAME . EQX CONSTANT COMMA AssignList
 
-    $end            reduce using rule 13 (CreateStmt -> CREATE TABLE TCNAME LPAREN FieldDefList RPAREN .)
+    EQX             shift and go to state 41
 
 
 state 33
 
-    (15) FieldDefList -> FieldDef COMMA . FieldDefList
-    (14) FieldDefList -> . FieldDef
-    (15) FieldDefList -> . FieldDef COMMA FieldDefList
-    (16) FieldDef -> . TCNAME TypeDef
+    (26) UpdateStmt -> UPDATE TCNAME SET AssignList . WHERE Cond
 
-    TCNAME          shift and go to state 23
+    WHERE           shift and go to state 42
 
-    FieldDef                       shift and go to state 25
-    FieldDefList                   shift and go to state 40
 
 state 34
 
-    (19) InsertStmt -> INSERT INTO TCNAME VALUES LPAREN ValueList . RPAREN
+    (8) SFW -> SELECT SelList FROM FromList . WHERE Cond
+    (9) SFW -> SELECT SelList FROM FromList .
 
-    RPAREN          shift and go to state 41
+    WHERE           shift and go to state 43
+    $end            reduce using rule 9 (SFW -> SELECT SelList FROM FromList .)
 
 
 state 35
 
-    (20) ValueList -> CONSTANT .
-    (21) ValueList -> CONSTANT . COMMA ValueList
+    (13) FromList -> TCNAME . COMMA FromList
+    (14) FromList -> TCNAME .
 
-    RPAREN          reduce using rule 20 (ValueList -> CONSTANT .)
-    COMMA           shift and go to state 42
+    COMMA           shift and go to state 44
+    WHERE           reduce using rule 14 (FromList -> TCNAME .)
+    $end            reduce using rule 14 (FromList -> TCNAME .)
 
 
 state 36
 
-    (5) SFW -> SELECT SelList FROM FromList WHERE Cond .
+    (10) SelList -> TCNAME COMMA SelList .
 
-    $end            reduce using rule 5 (SFW -> SELECT SelList FROM FromList WHERE Cond .)
+    FROM            reduce using rule 10 (SelList -> TCNAME COMMA SelList .)
 
 
 state 37
 
-    (12) Cond -> TCNAME . EQX CONSTANT
+    (19) FieldDef -> TCNAME . TypeDef
+    (20) TypeDef -> . CHAR LPAREN CONSTANT RPAREN
+    (21) TypeDef -> . INTEGER
 
-    EQX             shift and go to state 43
+    CHAR            shift and go to state 46
+    INTEGER         shift and go to state 47
 
+    TypeDef                        shift and go to state 45
 
 state 38
 
-    (10) FromList -> TCNAME COMMA FromList .
+    (16) CreateStmt -> CREATE TABLE TCNAME LPAREN FieldDefList . RPAREN
 
-    WHERE           reduce using rule 10 (FromList -> TCNAME COMMA FromList .)
-    $end            reduce using rule 10 (FromList -> TCNAME COMMA FromList .)
+    RPAREN          shift and go to state 48
 
 
 state 39
 
-    (17) TypeDef -> CHAR LPAREN . CONSTANT RPAREN
+    (17) FieldDefList -> FieldDef .
+    (18) FieldDefList -> FieldDef . COMMA FieldDefList
 
-    CONSTANT        shift and go to state 44
+    RPAREN          reduce using rule 17 (FieldDefList -> FieldDef .)
+    COMMA           shift and go to state 49
 
 
 state 40
 
-    (15) FieldDefList -> FieldDef COMMA FieldDefList .
+    (22) InsertStmt -> INSERT INTO TCNAME VALUES LPAREN . ValueList RPAREN
+    (23) ValueList -> . CONSTANT
+    (24) ValueList -> . CONSTANT COMMA ValueList
 
-    RPAREN          reduce using rule 15 (FieldDefList -> FieldDef COMMA FieldDefList .)
+    CONSTANT        shift and go to state 51
 
+    ValueList                      shift and go to state 50
 
 state 41
 
-    (19) InsertStmt -> INSERT INTO TCNAME VALUES LPAREN ValueList RPAREN .
+    (27) AssignList -> TCNAME EQX . CONSTANT
+    (28) AssignList -> TCNAME EQX . CONSTANT COMMA AssignList
 
-    $end            reduce using rule 19 (InsertStmt -> INSERT INTO TCNAME VALUES LPAREN ValueList RPAREN .)
+    CONSTANT        shift and go to state 52
 
 
 state 42
 
-    (21) ValueList -> CONSTANT COMMA . ValueList
-    (20) ValueList -> . CONSTANT
-    (21) ValueList -> . CONSTANT COMMA ValueList
+    (26) UpdateStmt -> UPDATE TCNAME SET AssignList WHERE . Cond
+    (15) Cond -> . TCNAME EQX CONSTANT
 
-    CONSTANT        shift and go to state 35
+    TCNAME          shift and go to state 53
 
-    ValueList                      shift and go to state 45
+    Cond                           shift and go to state 54
 
 state 43
 
-    (12) Cond -> TCNAME EQX . CONSTANT
+    (8) SFW -> SELECT SelList FROM FromList WHERE . Cond
+    (15) Cond -> . TCNAME EQX CONSTANT
 
-    CONSTANT        shift and go to state 46
+    TCNAME          shift and go to state 53
 
+    Cond                           shift and go to state 55
 
 state 44
 
-    (17) TypeDef -> CHAR LPAREN CONSTANT . RPAREN
+    (13) FromList -> TCNAME COMMA . FromList
+    (13) FromList -> . TCNAME COMMA FromList
+    (14) FromList -> . TCNAME
 
-    RPAREN          shift and go to state 47
+    TCNAME          shift and go to state 35
 
+    FromList                       shift and go to state 56
 
 state 45
 
-    (21) ValueList -> CONSTANT COMMA ValueList .
+    (19) FieldDef -> TCNAME TypeDef .
 
-    RPAREN          reduce using rule 21 (ValueList -> CONSTANT COMMA ValueList .)
+    COMMA           reduce using rule 19 (FieldDef -> TCNAME TypeDef .)
+    RPAREN          reduce using rule 19 (FieldDef -> TCNAME TypeDef .)
 
 
 state 46
 
-    (12) Cond -> TCNAME EQX CONSTANT .
+    (20) TypeDef -> CHAR . LPAREN CONSTANT RPAREN
 
-    $end            reduce using rule 12 (Cond -> TCNAME EQX CONSTANT .)
+    LPAREN          shift and go to state 57
 
 
 state 47
 
-    (17) TypeDef -> CHAR LPAREN CONSTANT RPAREN .
+    (21) TypeDef -> INTEGER .
 
-    COMMA           reduce using rule 17 (TypeDef -> CHAR LPAREN CONSTANT RPAREN .)
-    RPAREN          reduce using rule 17 (TypeDef -> CHAR LPAREN CONSTANT RPAREN .)
+    COMMA           reduce using rule 21 (TypeDef -> INTEGER .)
+    RPAREN          reduce using rule 21 (TypeDef -> INTEGER .)
+
+
+state 48
+
+    (16) CreateStmt -> CREATE TABLE TCNAME LPAREN FieldDefList RPAREN .
+
+    $end            reduce using rule 16 (CreateStmt -> CREATE TABLE TCNAME LPAREN FieldDefList RPAREN .)
+
+
+state 49
+
+    (18) FieldDefList -> FieldDef COMMA . FieldDefList
+    (17) FieldDefList -> . FieldDef
+    (18) FieldDefList -> . FieldDef COMMA FieldDefList
+    (19) FieldDef -> . TCNAME TypeDef
+
+    TCNAME          shift and go to state 37
+
+    FieldDef                       shift and go to state 39
+    FieldDefList                   shift and go to state 58
+
+state 50
+
+    (22) InsertStmt -> INSERT INTO TCNAME VALUES LPAREN ValueList . RPAREN
+
+    RPAREN          shift and go to state 59
+
+
+state 51
+
+    (23) ValueList -> CONSTANT .
+    (24) ValueList -> CONSTANT . COMMA ValueList
+
+    RPAREN          reduce using rule 23 (ValueList -> CONSTANT .)
+    COMMA           shift and go to state 60
+
+
+state 52
+
+    (27) AssignList -> TCNAME EQX CONSTANT .
+    (28) AssignList -> TCNAME EQX CONSTANT . COMMA AssignList
+
+    WHERE           reduce using rule 27 (AssignList -> TCNAME EQX CONSTANT .)
+    COMMA           shift and go to state 61
+
+
+state 53
+
+    (15) Cond -> TCNAME . EQX CONSTANT
+
+    EQX             shift and go to state 62
+
+
+state 54
+
+    (26) UpdateStmt -> UPDATE TCNAME SET AssignList WHERE Cond .
+
+    $end            reduce using rule 26 (UpdateStmt -> UPDATE TCNAME SET AssignList WHERE Cond .)
+
+
+state 55
+
+    (8) SFW -> SELECT SelList FROM FromList WHERE Cond .
+
+    $end            reduce using rule 8 (SFW -> SELECT SelList FROM FromList WHERE Cond .)
+
+
+state 56
+
+    (13) FromList -> TCNAME COMMA FromList .
+
+    WHERE           reduce using rule 13 (FromList -> TCNAME COMMA FromList .)
+    $end            reduce using rule 13 (FromList -> TCNAME COMMA FromList .)
+
+
+state 57
+
+    (20) TypeDef -> CHAR LPAREN . CONSTANT RPAREN
+
+    CONSTANT        shift and go to state 63
+
+
+state 58
+
+    (18) FieldDefList -> FieldDef COMMA FieldDefList .
+
+    RPAREN          reduce using rule 18 (FieldDefList -> FieldDef COMMA FieldDefList .)
+
+
+state 59
+
+    (22) InsertStmt -> INSERT INTO TCNAME VALUES LPAREN ValueList RPAREN .
+
+    $end            reduce using rule 22 (InsertStmt -> INSERT INTO TCNAME VALUES LPAREN ValueList RPAREN .)
+
+
+state 60
+
+    (24) ValueList -> CONSTANT COMMA . ValueList
+    (23) ValueList -> . CONSTANT
+    (24) ValueList -> . CONSTANT COMMA ValueList
+
+    CONSTANT        shift and go to state 51
+
+    ValueList                      shift and go to state 64
+
+state 61
+
+    (28) AssignList -> TCNAME EQX CONSTANT COMMA . AssignList
+    (27) AssignList -> . TCNAME EQX CONSTANT
+    (28) AssignList -> . TCNAME EQX CONSTANT COMMA AssignList
+
+    TCNAME          shift and go to state 32
+
+    AssignList                     shift and go to state 65
+
+state 62
+
+    (15) Cond -> TCNAME EQX . CONSTANT
+
+    CONSTANT        shift and go to state 66
+
+
+state 63
+
+    (20) TypeDef -> CHAR LPAREN CONSTANT . RPAREN
+
+    RPAREN          shift and go to state 67
+
+
+state 64
+
+    (24) ValueList -> CONSTANT COMMA ValueList .
+
+    RPAREN          reduce using rule 24 (ValueList -> CONSTANT COMMA ValueList .)
+
+
+state 65
+
+    (28) AssignList -> TCNAME EQX CONSTANT COMMA AssignList .
+
+    WHERE           reduce using rule 28 (AssignList -> TCNAME EQX CONSTANT COMMA AssignList .)
+
+
+state 66
+
+    (15) Cond -> TCNAME EQX CONSTANT .
+
+    $end            reduce using rule 15 (Cond -> TCNAME EQX CONSTANT .)
+
+
+state 67
+
+    (20) TypeDef -> CHAR LPAREN CONSTANT RPAREN .
+
+    COMMA           reduce using rule 20 (TypeDef -> CHAR LPAREN CONSTANT RPAREN .)
+    RPAREN          reduce using rule 20 (TypeDef -> CHAR LPAREN CONSTANT RPAREN .)
 

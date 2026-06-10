@@ -1,7 +1,7 @@
 # -----------------------
 # main_db.py
 # author: Jingyu Han   hjymail@163.com
-# modified by: Ning Wang, Yidan Xu, 胡丹
+# modified by: Ning Wang, Yidan Xu, 胡丹，但芸妍
 # -----------------------------------
 # This is the main loop of the program
 # ---------------------------------------
@@ -24,7 +24,7 @@ import query_plan_db  # construct the query plan and execute it
 PROMPT_STR = 'Input your choice  \n1:add a new table structure and data \n2:delete a table structure and data\
 \n3:view a table structure and data \n4:delete all tables and data \n5:select from where clause\
 \n6:delete a row according to field keyword \n7:update a row according to field keyword\
-\n8:DDL(CREATE TABLE) \n9:DML(INSERT INTO) \n. to quit):\n'
+\n8:DDL(CREATE TABLE) \n9:DML(INSERT INTO) \n10:DML(DELETE FROM) \n11:DML(UPDATE SET) \n12:DDL(DROP TABLE) \n. to quit):\n'
 
 
 def _read_non_empty_text(prompt_text):
@@ -371,19 +371,19 @@ def main():
 
             choice = input(PROMPT_STR)
 
-
-        elif choice == '8':  # DDL：CREATE TABLE（表结构定义）
+        # Author: 但芸妍
+        # 新增：CREATE TABLE
+        elif choice == '8':
             print('#        DDL -- CREATE TABLE                       #')
             sql_str = input('please enter the CREATE TABLE statement:')
             ok, root, err = _run_sql_parser(sql_str)
             if not ok:
                 print(err)
             elif root.value != 'CreateStmt':
-                print('选项 8 仅支持 CREATE TABLE，当前语句类型为: ' + str(root.value))
+                print('选项 8 仅支持 CREATE TABLE')
             else:
                 try:
-                    success, msg = _exec_create_table(root, schemaObj)
-                    print(msg)
+                    query_plan_db.execute_create_table(schemaObj)
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
@@ -391,19 +391,18 @@ def main():
             print('#----------------------------------------------------#')
             choice = input(PROMPT_STR)
 
-
-        elif choice == '9':  # DML：INSERT INTO（数据操作）
+        # Author: 但芸妍
+        elif choice == '9':  # DML: INSERT INTO
             print('#        DML -- INSERT INTO                        #')
             sql_str = input('please enter the INSERT INTO statement:')
             ok, root, err = _run_sql_parser(sql_str)
             if not ok:
                 print(err)
             elif root.value != 'InsertStmt':
-                print('选项 9 仅支持 INSERT INTO，当前语句类型为: ' + str(root.value))
+                print('选项 9 仅支持 INSERT INTO')
             else:
                 try:
-                    success, msg = _exec_insert_into(root, schemaObj)
-                    print(msg)
+                    query_plan_db.execute_insert(schemaObj)
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
@@ -411,6 +410,62 @@ def main():
             print('#----------------------------------------------------#')
             choice = input(PROMPT_STR)
 
+        # Author: 但芸妍
+        elif choice == '10':  # DML: DELETE FROM
+            print('#        DML -- DELETE FROM                       #')
+            sql_str = input('please enter the DELETE FROM statement:')
+            ok, root, err = _run_sql_parser(sql_str)
+            if not ok:
+                print(err)
+            elif root.value != 'DeleteStmt':
+                print('选项 10 仅支持 DELETE FROM')
+            else:
+                try:
+                    query_plan_db.execute_delete(schemaObj)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print('删除执行错误:', str(e))
+            print('#----------------------------------------------------#')
+            choice = input(PROMPT_STR)
+
+        # Author: 但芸妍
+        elif choice == '11':  # DML: UPDATE SET
+            print('#        DML -- UPDATE SET                        #')
+            sql_str = input('please enter the UPDATE statement:')
+            ok, root, err = _run_sql_parser(sql_str)
+            if not ok:
+                print(err)
+            elif root.value != 'UpdateStmt':
+                print('选项 11 仅支持 UPDATE SET')
+            else:
+                try:
+                    query_plan_db.execute_update(schemaObj)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print('更新执行错误:', str(e))
+            print('#----------------------------------------------------#')
+            choice = input(PROMPT_STR)
+
+        # Author: 但芸妍
+        elif choice == '12':  # DDL: DROP TABLE
+            print('#        DDL -- DROP TABLE                        #')
+            sql_str = input('please enter the DROP TABLE statement:')
+            ok, root, err = _run_sql_parser(sql_str)
+            if not ok:
+                print(err)
+            elif root.value != 'DropStmt':
+                print('选项 12 仅支持 DROP TABLE')
+            else:
+                try:
+                    query_plan_db.execute_drop(schemaObj)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print('删除表执行错误:', str(e))
+            print('#----------------------------------------------------#')
+            choice = input(PROMPT_STR)
 
         elif choice == '.':
             print('main loop finishies')

@@ -1,31 +1,33 @@
-#------------------------------------------------
+# ------------------------------------------------
 # query_plan_db.py
 # author: Jingyu Han  hjymail@163.com
-# modified by:Shuting Guo shutingnjupt@gmail.com
-#------------------------------------------------
+# modified by:但芸妍
+# ------------------------------------------------
 
 
-
-#----------------------------------------------------------
+# ----------------------------------------------------------
 # this module can turn a syntax tree into a query plan tree
-#----------------------------------------------------------
+# ----------------------------------------------------------
 
 import common_db
 import storage_db
 import itertools
-    
 
-#--------------------------------
+# --------------------------------
 # to import the syntax tree, which is defined in parser_db.py
-#-------------------------------------------
-# 修改原因：不用 from import 别名，改为直接引用 common_db.global_syn_tree
-# 避免 Python 值拷贝导入导致 parser 重新赋值后此处仍为 None 的经典陷阱
+# -------------------------------------------
+# from common_db import global_syn_tree as syn_tree
+
+
+'''
+    把语法树转换成可执行的查询计划，然后执行并返回结果
+'''
 
 class parseNode:
     def __init__(self):
-        self.sel_list=[]
-        self.from_list=[]
-        self.where_list=[]
+        self.sel_list = []
+        self.from_list = []
+        self.where_list = []
 
     def get_sel_list(self):
         return self.sel_list
@@ -36,35 +38,36 @@ class parseNode:
     def get_where_list(self):
         return self.where_list
 
-    def update_sel_list(self,self_list):
+    def update_sel_list(self, self_list):
         self.sel_list = self_list
 
     def update_from_list(self, from_list):
         self.from_list = from_list
 
-    def update_where_list(self,where_list):
+    def update_where_list(self, where_list):
         self.where_list = where_list
 
 
-#--------------------------------
+# --------------------------------
 # Author: Shuting Guo shutingnjupt@gmail.com
 # to extract data from gloal variable syn_tree
 # output:
 #       sel_list
 #       from_list
 #       where_list
-#--------------------------------
+# --------------------------------
 def extract_sfw_data():
     print('extract_sfw_data begins to execute')
     if common_db.global_syn_tree is None:
-        print ('wrong')
+        print('wrong')
     else:
-        #common_db.show(common_db.global_syn_tree)
+        # common_db.show(syn_tree)
         PN = parseNode()
-        destruct(common_db.global_syn_tree, PN)
-        return PN.get_sel_list(),PN.get_from_list(),PN.get_where_list()
+        destruct(common_db.global_syn_tree, PN)  # 遍历语法树，提取信息
+        return PN.get_sel_list(), PN.get_from_list(), PN.get_where_list()
 
-#---------------------------------
+
+# ---------------------------------
 # Author: Shuting Guo shutingnjupt@gmail.com
 # Query  : SFW
 #   SFW  : SELECT SelList FROM FromList WHERE Condition
@@ -74,14 +77,14 @@ def extract_sfw_data():
 # FromList:TCNAME COMMA FromList
 # FromList:TCNAME
 # Condition: TCNAME EQX CONSTANT
-#---------------------------------
+# ---------------------------------
 
-def destruct(nodeobj,PN):
+def destruct(nodeobj, PN):
     if isinstance(nodeobj, common_db.Node):  # it is a Node object
         if nodeobj.children:
             if nodeobj.value == 'SelList':
-                tmpList=[]
-                show(nodeobj,tmpList)
+                tmpList = []
+                show(nodeobj, tmpList)
                 PN.update_sel_list(tmpList)
             elif nodeobj.value == 'FromList':
                 tmpList = []
@@ -93,74 +96,94 @@ def destruct(nodeobj,PN):
                 PN.update_where_list(tmpList)
             else:
                 for i in range(len(nodeobj.children)):
-                    destruct(nodeobj.children[i],PN)
+                    destruct(nodeobj.children[i], PN)
 
-def show(nodeobj,tmpList):
-    if isinstance(nodeobj,common_db.Node):
-        if not nodeobj.children:
+
+def show(nodeobj, tmpList):
+    if isinstance(nodeobj, common_db.Node):
+        if not nodeobj.children:  # 叶子结点，这个if根本不会执行（TCNAME或其他token永远有子结点）
             tmpList.append(nodeobj.value)
         else:
             for i in range(len(nodeobj.children)):
-                show(nodeobj.children[i],tmpList)
-    if isinstance(nodeobj,str):
+                show(nodeobj.children[i], tmpList)
+    if isinstance(nodeobj, str):
         tmpList.append(nodeobj)
 
 
-#---------------------------
-#input:
+# ---------------------------
+# input:
 #       from_list
-#output:
+# output:
 #       a tree
-#-----------------------------------
-        
+# -----------------------------------
+'''
+    把表名列表转换成一棵左深连接树
+    
+    ·X 节点：计算笛卡尔积
+    ·Filter 节点：过滤数据
+    ·Proj 节点：投影，返回最终结果
+    
+    
+                        Proj (投影)
+                       ↓
+                    Filter (过滤)  ← 如果有 WHERE 条件
+                       ↓
+                      X (连接)     ← 这是最外层的 X
+                     / \
+                    X   takes      ← 右子树是 takes 表
+                   / \
+            students courses       ← 左子树是 students × courses 的结果
+'''
 def construct_from_node(from_list):
-    if from_list:        
-        if len(from_list)==1:
-            temp_node=common_db.Node(from_list[0],None)
-            return common_db.Node('X',[temp_node])
-        elif len(from_list)==2:
-            temp_node_first=common_db.Node(from_list[0],None)
-            temp_node_second=common_db.Node(from_list[1],None)
-            
-            return common_db.Node('X',[temp_node_first,temp_node_second])       
-            
-        elif len(from_list)>2:
-            
-            right_node=common_db.Node(from_list[len(from_list)-1],None)
-            
-            return common_db.Node('X',[construct_from_node(from_list[0:len(from_list)-1]),right_node])
+    if from_list:
+        if len(from_list) == 1:
+            temp_node = common_db.Node(from_list[0], None)
+            return common_db.Node('X', [temp_node])
+        elif len(from_list) == 2:
+            temp_node_first = common_db.Node(from_list[0], None)
+            temp_node_second = common_db.Node(from_list[1], None)
 
-#---------------------------
-#input:
+            return common_db.Node('X', [temp_node_first, temp_node_second])
+
+        elif len(from_list) > 2:
+
+            right_node = common_db.Node(from_list[len(from_list) - 1], None)
+
+            return common_db.Node('X', [construct_from_node(from_list[0:len(from_list) - 1]), right_node])
+
+
+# ---------------------------
+# input:
 #       where_list
 #       from_node
-#output:
+# output:
 #       a tree
-#-----------------------------------
-def construct_where_node(from_node,where_list):
-    if from_node and len(where_list)>0:
-       return common_db.Node('Filter',[from_node],where_list)
-    elif from_node and len(where_list)==0:# there is no where clause
+# -----------------------------------
+def construct_where_node(from_node, where_list):
+    if from_node and len(where_list) > 0:
+        return common_db.Node('Filter', [from_node], where_list)
+    elif from_node and len(where_list) == 0:  # there is no where clause
         return from_node
 
 
-#---------------------------
-#input:
+# ---------------------------
+# input:
 #       sel_list
 #       wf_node
-#output:
+# output:
 #       a tree
-#-----------------------------------
-def construct_select_node(wf_node,sel_list):
-    if wf_node and len(sel_list)>0:
-        return common_db.Node('Proj',[wf_node],sel_list)
+# -----------------------------------
+def construct_select_node(wf_node, sel_list):
+    if wf_node and len(sel_list) > 0:
+        return common_db.Node('Proj', [wf_node], sel_list)
 
-#----------------------------------
+
+# ----------------------------------
 # Author: Shuting Guo shutingnjupt@gmail.com
 # to execute the query plan and return the result
 # input
 #       global logical tree
-#---------------------------------------------
+# ---------------------------------------------
 
 def execute_logical_tree():
     if common_db.global_logical_tree:
@@ -169,6 +192,7 @@ def execute_logical_tree():
             idx = 0
             dict_ = {}
 
+            # 遍历查询计划树，记录每个节点的值和它在树中的层级（深度）
             def show(node_obj, idx, dict_):
                 if isinstance(node_obj, common_db.Node):  # it is a Node object
                     dict_.setdefault(idx, [])
@@ -180,8 +204,9 @@ def execute_logical_tree():
                             show(node_obj.children[i], idx + 1, dict_)
 
             show(common_db.global_logical_tree, idx, dict_)
-            idx = sorted(dict_.keys(), reverse=True)[0]
+            idx = sorted(dict_.keys(), reverse=True)[0]  # 找出字典中最大的键（最深的那一层）
 
+            # 根据条件中的字段名，找出它属于哪张表、是第几个字段、是什么类型
             def GetFilterParam(tableName_Order, current_field, param):
                 # print tableName_Order,current_field
                 if '.' in param:
@@ -194,40 +219,38 @@ def execute_logical_tree():
                     FieldName = param
                 else:
                     return 0, 0, 0, False
-                # 修改原因：磁盘读出的字段名是 bytes，统一解码为 str 才能与语法树中的 FieldName 比较
-                tmp = []
-                for x in current_field[TableIndex]:
-                    fn = x[0]
-                    if isinstance(fn, bytes):
-                        fn = fn.decode('utf-8')
-                    tmp.append(fn.strip())
+
+                tmp = list(map(lambda x: x[0].strip().decode('utf-8'), current_field[TableIndex]))  # 取出该表所有字段名，去掉空格，转成列表
                 if FieldName in tmp:
-                    FieldIndex = tmp.index(FieldName)
-                    FieldType = current_field[TableIndex][FieldIndex][1]
+                    FieldIndex = tmp.index(FieldName)  # 字段在第几个位置
+                    FieldType = current_field[TableIndex][FieldIndex][1]  # 字段类型
                     return TableIndex, FieldIndex, FieldType, True
                 else:
                     return 0, 0, 0, False
 
-            current_field = []
-            current_list =[]
-            #print dict_
+            current_field = []  # 记录每张表的字段信息
+            current_list = []  # 记录当前中间结果（数据）
+            # print dict_
             while (idx >= 0):
-                if idx == sorted(dict_.keys(), reverse=True)[0]:
-                    if len(dict_[idx]) > 1:
+                if idx == sorted(dict_.keys(), reverse=True)[0]:  # 最深层
+                    if len(dict_[idx]) > 1:  # 该层有多个表
+                        # 读取两个表
                         a_1 = storage_db.Storage(dict_[idx][0])
                         a_2 = storage_db.Storage(dict_[idx][1])
                         current_list = []
+                        # 记录表名顺序和字段信息
                         tableName_Order = [dict_[idx][0], dict_[idx][1]]
                         current_field = [a_1.getFieldList(), a_2.getFieldList()]
+                        # 做笛卡尔积
                         for x in itertools.product(a_1.getRecord(), a_2.getRecord()):
                             current_list.append(list(x))
-                    else:
+                    else:  # 该层只有一个表
                         a_1 = storage_db.Storage(dict_[idx][0])
                         current_list = a_1.getRecord()
 
                         tableName_Order = [dict_[idx][0]]
                         current_field = [a_1.getFieldList()]
-                        #print current_list
+                        # print current_list
 
                 elif 'X' in dict_[idx] and len(dict_[idx]) > 1:
                     a_2 = storage_db.Storage(dict_[idx][1])
@@ -252,7 +275,7 @@ def execute_logical_tree():
                                 FilterParam = bool(FilterChoice[2].strip())
                             else:
                                 FilterParam = FilterChoice[2].strip()
-                            #print FilterParam
+                            # print FilterParam
                         tmp_List = current_list[:]
                         current_list = []
                         for tmpRecord in tmp_List:
@@ -262,20 +285,19 @@ def execute_logical_tree():
                                 ans = tmpRecord[TableIndex][FieldIndex]
                             if FieldType == 0 or FieldType == 1:
                                 ans = ans.strip()
-                                # 修改原因：记录值从 .dat 读出是 bytes，FilterParam 来自语法树是 str，统一解码后比较
-                                if isinstance(ans, bytes):
-                                    ans = ans.decode('utf-8')
                             if FilterParam == ans:
                                 current_list.append(tmpRecord)
 
                     if 'Proj' in dict_[idx][0]:
-                        SelIndexList = []
-                        # 实验2 ： select * 通配符 → 选中所有表的所有字段
+                        # 检查是否是通配符 *
                         if dict_[idx][0][1] == ['*']:
+                            # 选择所有表的所有字段
+                            SelIndexList = []
                             for table_idx in range(len(current_field)):
                                 for field_idx in range(len(current_field[table_idx])):
                                     SelIndexList.append((table_idx, field_idx))
                         else:
+                            SelIndexList = []
                             for i in range(len(dict_[idx][0][1])):
                                 TableIndex, FieldIndex, FieldType, isTrue = GetFilterParam(tableName_Order, current_field,
                                                                                            dict_[idx][0][1][i])
@@ -297,27 +319,36 @@ def execute_logical_tree():
                                 for x in SelIndexList:
                                     tmp.append(tmpRecord[x[0]][x[1]])
                                 current_list.append(tmp)
+
                         outPutField = []
                         for xi in SelIndexList:
-                            # 修改原因：磁盘读出字段名为 bytes，统一解码避免 str + bytes 拼接报错
+                            # 处理表名
+                            table_name = tableName_Order[xi[0]]
+                            if isinstance(table_name, bytes):
+                                table_name = table_name.decode('utf-8')
+                            table_name = table_name.strip()
+
+                            # 处理字段名
                             field_name = current_field[xi[0]][xi[1]][0]
                             if isinstance(field_name, bytes):
-                                field_name = field_name.decode('utf-8').strip()
-                            outPutField.append(
-                                tableName_Order[xi[0]].strip() + '.' + field_name)
+                                field_name = field_name.decode('utf-8')
+                            field_name = field_name.strip()
+
+                            outPutField.append(table_name + '.' + field_name)
                         return outPutField, current_list, True
                 idx -= 1
 
         outPutField, current_list, isRight = excute_tree()
 
         if isRight:
-            print (outPutField)
+            print(outPutField)
             for record in current_list:
-                print (record)
+                print(record)
         else:
-            print ('WRONG SQL INPUT!')
+            print('WRONG SQL INPUT!')
     else:
-        print ('there is no query plan tree for the execution')
+        print('there is no query plan tree for the execution')
+
 
 # --------------------------------
 # Author: Shuting Guo shutingnjupt@gmail.com
@@ -325,215 +356,373 @@ def execute_logical_tree():
 # output:
 #       global_logical_tree
 # ---------------------------------
-# ============================================================
-# 查询优化器 —— 三类优化：谓词下推 / 连接重排序 / 投影下推
-# ============================================================
-
-def _print_plan_tree(node, indent=0):
-    """
-    以缩进树形格式递归打印查询计划树，展示节点类型、关键参数及叶子表行数。
-    用于优化前后的对比可视化。
-    """
-    prefix = '  ' * indent
-    if node is None:
-        print(prefix + '(nil)')
-        return
-
-    label = node.value
-    detail = ''
-
-    if node.value == 'Proj' and node.var:
-        detail = ' ' + str(node.var)
-    elif node.value == 'Filter' and node.var:
-        detail = ' ' + str(node.var)
-    elif node.value != 'X' and node.value != 'Proj' and node.value != 'Filter':
-        # 叶子表节点：尝试读取行数
-        try:
-            s = storage_db.Storage(node.value)
-            cnt = len(s.getRecord())
-            del s
-            detail = ' ({0} 行)'.format(cnt)
-        except:
-            detail = ' (行数未知)'
-
-    print(prefix + '[' + label + ']' + detail)
-
-    if node.children:
-        for child in node.children:
-            _print_plan_tree(child, indent + 1)
-
-
-def _get_table_field_map(table_names):
-    """
-    构建 {字段名: 所属表名} 的映射字典，用于谓词下推时定位字段属于哪张表。
-    若字段名在多个表中同时存在则记录最先匹配的表。
-    """
-    field_map = {}
-    for tname in table_names:
-        try:
-            s = storage_db.Storage(tname)
-            flist = s.getFieldList()
-            del s
-            for fname, ftype, flen in flist:
-                key = fname.decode('utf-8').strip() if isinstance(fname, bytes) else str(fname).strip()
-                if key not in field_map:
-                    field_map[key] = tname
-        except:
-            pass
-    return field_map
-
-
-def _push_down_predicates(node, field_to_table):
-    """
-    谓词下推优化 —— 递归遍历计划树，将 Filter 节点中仅涉及单表的过滤条件
-    沿 X 连接树向下推至对应叶子表节点上方，减少连接前的中间结果集大小。
-
-    原理：σ(table1.col=val)(table1 × table2)  →  σ(table1.col=val)(table1) × table2
-    """
-    if node is None:
-        return None
-
-    if node.value == 'Proj':
-        # Proj 节点：递归优化其子树
-        if node.children:
-            node.children[0] = _push_down_predicates(node.children[0], field_to_table)
-        return node
-
-    if node.value == 'Filter':
-        conds = node.var
-        if conds is None or len(conds) == 0:
-            return _push_down_predicates(node.children[0], field_to_table) if node.children else node
-
-        # 将单条件包装为 list 统一处理
-        if isinstance(conds, tuple) and len(conds) > 0 and not isinstance(conds[0], (tuple, list)):
-            conds = [conds]
-
-        single_conds = {}   # {table_name: [cond, cond, ...]}
-        remain_conds = []   # 多表条件保留在原位置
-
-        for cond in conds:
-            field_name = cond[0]
-            owner = field_to_table.get(field_name)
-            if owner:
-                single_conds.setdefault(owner, []).append(cond)
-            else:
-                remain_conds.append(cond)
-
-        # 沿 X 树下降，将单表条件插入到对应叶子表节点上方
-        child = _push_to_leaves(node.children[0], single_conds)
-
-        if remain_conds:
-            # 还有跨表条件未下推，保留当前 Filter 层包裹在 child 外面
-            node.children[0] = child
-            node.var = tuple(remain_conds[0]) if len(remain_conds) == 1 else tuple(remain_conds)
-            return node
-        else:
-            # 所有条件都已落到叶子层，当前 Filter 层可消去
-            # 注意：child 内部已被 _push_to_leaves 递归处理过，不再重复下推
-            return child
-
-    if node.value == 'X':
-        # 笛卡尔积节点：递归优化每个子树
-        new_children = [_push_down_predicates(ch, field_to_table) for ch in node.children]
-        node.children = new_children
-        return node
-
-    # 叶子表节点：直接返回
-    return node
-
-
-def _push_to_leaves(node, single_conds):
-    """
-    沿 X 连接树递归下降，在匹配的叶子表节点上方插入 Filter。
-    """
-    if node is None:
-        return None
-
-    if node.value == 'X':
-        new_children = [_push_to_leaves(ch, single_conds) for ch in node.children]
-        node.children = new_children
-        return node
-
-    # 叶子表节点（value 为表名）
-    tname = node.value.strip()
-    if isinstance(tname, bytes):
-        tname = tname.decode('utf-8')
-    if tname in single_conds:
-        conds = single_conds[tname]
-        cond_var = tuple(conds[0]) if len(conds) == 1 else tuple(conds)
-        return common_db.Node('Filter', [node], cond_var)
-
-    return node
-
-
-def _reorder_from_list(from_list):
-    """
-    连接重排序优化 —— 按表的记录数升序排列 from_list。
-    小表先参与笛卡尔积可使中间结果尽早保持较小规模。
-
-    原理：R × S 与 S × R 结果等价，但若 |R| < |S|，先处理 R 可减少中间内存占用。
-    """
-    if len(from_list) <= 1:
-        return list(from_list)
-
-    def _row_count(tname):
-        try:
-            s = storage_db.Storage(tname)
-            cnt = len(s.getRecord())
-            del s
-            return cnt
-        except:
-            return 99999
-
-    return sorted(list(from_list), key=_row_count)
-
-
 def construct_logical_tree():
-    if not common_db.global_syn_tree:
+    # 直接使用 common_db.global_syn_tree
+    if common_db.global_syn_tree is None:
         print('there is no data in the syntax tree in the construct_logical_tree')
         return
 
     sel_list, from_list, where_list = extract_sfw_data()
     sel_list = [i for i in sel_list if i != ',']
+
+    # 处理 * 通配符
+    if '*' in sel_list:
+        sel_list = ['*']
+
     from_list = [i for i in from_list if i != ',']
     where_list = tuple(where_list)
 
-    # ---------- 优化前原始计划树 ----------
-    raw_from_node = construct_from_node(from_list)
-    raw_where_node = construct_where_node(raw_from_node, where_list)
-    raw_tree = construct_select_node(raw_where_node, sel_list)
-
-    print('\n' + '=' * 55)
-    print('  优化前 查询计划树')
-    print('=' * 55)
-    _print_plan_tree(raw_tree)
-
-    # ========== 优化管线 ==========
-
-    # --- 优化1: 连接重排序 ---
-    reordered_list = _reorder_from_list(from_list)
-    if reordered_list != from_list:
-        print('\n  >> 连接重排序: {0} → {1} (按行数升序)'.format(from_list, reordered_list))
-
-    # --- 优化2: 谓词下推 ---
-    field_to_table = _get_table_field_map(reordered_list)
-    from_node = construct_from_node(reordered_list)
+    from_node = construct_from_node(from_list)
     where_node = construct_where_node(from_node, where_list)
-    optimized_tree = construct_select_node(where_node, sel_list)
-    optimized_tree = _push_down_predicates(optimized_tree, field_to_table)
+    common_db.global_logical_tree = construct_select_node(where_node, sel_list)
 
-    # --- 优化3: 投影下推 ---
-    # 当前 Storage 按定长整行读取，列裁剪无法减少 I/O 字节数，
-    # 此处将投影字段列表记录在根节点 var 中，执行阶段已按需裁剪输出列。
 
-    common_db.global_logical_tree = optimized_tree
+# --------------------------------
+# Author: 但芸妍
+# 新增：执行 CREATE TABLE
+# ---------------------------------
+def execute_create_table(schema_obj):
+    """执行 CREATE TABLE 语句"""
+    tree = common_db.global_syn_tree
+    if tree is None or tree.value != 'CreateStmt':
+        print("不是 CREATE TABLE 语句")
+        return False
 
-    print('\n' + '=' * 55)
-    print('  优化后 查询计划树')
-    print('=' * 55)
-    _print_plan_tree(optimized_tree)
-    print('=' * 55 + '\n')
+    # 获取表名（第1个子节点）
+    table_name_node = tree.children[0]
+    if isinstance(table_name_node, bytes):
+        table_name = table_name_node.decode('utf-8')
+    else:
+        table_name = str(table_name_node)
+    table_name = table_name.strip()
+    table_name_bytes = table_name.encode('utf-8')
 
+    # 获取字段定义列表（第2个子节点）
+    field_list_node = tree.children[1]
+
+    # 检查表是否已存在
+    if schema_obj.find_table(table_name_bytes):
+        print(f"表 '{table_name}' 已存在")
+        return False
+
+    # 递归解析字段定义列表
+    field_list = []
+    _parse_field_list(field_list_node, field_list)
+
+    # 创建表
+    storage = storage_db.Storage(table_name_bytes, field_list=field_list)
+    schema_obj.appendTable(table_name_bytes, field_list)
+    del storage
+
+    print(f"表 '{table_name}' 创建成功，共 {len(field_list)} 个字段")
+    return True
+
+
+def _parse_field_list(node, field_list):
+    """
+    递归解析 FieldDefList 节点
+    树结构：FieldDefList → [FieldDef, FieldDefList] 或 [FieldDef]
+    """
+    if node.value != 'FieldDefList':
+        return
+
+    # 第一个子节点是 FieldDef
+    first_child = node.children[0]
+    _parse_field_def(first_child, field_list)
+
+    # 如果有第二个子节点（剩余的 FieldDefList），递归处理
+    if len(node.children) > 1:
+        second_child = node.children[1]
+        _parse_field_list(second_child, field_list)
+
+
+def _parse_field_def(node, field_list):
+    """解析单个 FieldDef 节点"""
+    if node.value != 'FieldDef':
+        return
+
+    # 获取字段名
+    fname_node = node.children[0]
+    if isinstance(fname_node, bytes):
+        fname = fname_node.decode('utf-8')
+    else:
+        fname = str(fname_node)
+    fname = fname.strip()
+
+    # 获取类型定义
+    ftype_node = node.children[1]
+    _parse_type_def(ftype_node, fname, field_list)
+
+
+def _parse_type_def(node, fname, field_list):
+    """解析 TypeDef 节点"""
+    if node.value != 'TypeDef':
+        return
+
+    # 获取类型名
+    type_name_node = node.children[0]
+    if isinstance(type_name_node, bytes):
+        type_name = type_name_node.decode('utf-8')
+    else:
+        type_name = str(type_name_node)
+    type_name = type_name.strip().lower()
+
+    if type_name == 'char':
+        ftype = 0  # str
+        # 获取长度
+        if len(node.children) > 1:
+            flen = int(node.children[1])
+        else:
+            flen = 10  # 默认长度
+    elif type_name == 'varstr':
+        ftype = 1  # varstr
+        if len(node.children) > 1:
+            flen = int(node.children[1])
+        else:
+            flen = 20  # 默认长度
+    elif type_name == 'integer':
+        ftype = 2  # int
+        flen = 4
+    else:
+        print(f"不支持的字段类型: {type_name}")
+        return
+
+    field_list.append((fname, ftype, flen))
+
+
+# --------------------------------
+# Author: 但芸妍
+# 新增：执行 INSERT INTO
+# ---------------------------------
+def execute_insert(schema_obj):
+    """执行 INSERT INTO 语句"""
+    tree = common_db.global_syn_tree
+    if tree is None or tree.value != 'InsertStmt':
+        print("不是 INSERT INTO 语句")
+        return False
+
+    # 获取表名（第1个子节点）
+    table_name_node = tree.children[0]
+    if isinstance(table_name_node, bytes):
+        table_name = table_name_node.decode('utf-8')
+    else:
+        table_name = str(table_name_node)
+    table_name = table_name.strip()
+
+    # 获取值列表（第2个子节点）
+    value_list_node = tree.children[1]
+
+    # 递归解析值列表
+    values = []
+    _extract_values(value_list_node, values)
+
+    # 检查表是否存在
+    if not schema_obj.find_table(table_name.encode('utf-8')):
+        print(f"表 '{table_name}' 不存在")
+        return False
+
+    # 插入数据
+    try:
+        storage = storage_db.Storage(table_name)
+        if storage.insert_record(values):
+            print(f"插入成功: {values}")
+            del storage
+            return True
+        else:
+            print(f"插入失败: {values}")
+            del storage
+            return False
+    except Exception as e:
+        print(f"插入错误: {e}")
+        return False
+
+
+def _extract_values(node, values):
+    """递归解析 ValueList 节点"""
+    if node.value != 'ValueList':
+        return
+
+    # 第一个子节点是 CONSTANT 值
+    first_child = node.children[0]
+    if isinstance(first_child, bytes):
+        val = first_child.decode('utf-8')
+    else:
+        val = str(first_child)
+    val = val.strip()
+    # 去掉字符串的引号
+    if val.startswith("'") and val.endswith("'"):
+        val = val[1:-1]
+    values.append(val)
+
+    # 如果有第二个子节点（剩余的 ValueList），递归处理
+    if len(node.children) > 1:
+        second_child = node.children[1]
+        _extract_values(second_child, values)
+
+
+# --------------------------------
+# Author: 但芸妍
+# 新增：执行 DELETE FROM（删除表中所有数据）
+# ---------------------------------
+def execute_delete(schema_obj):
+    """执行 DELETE FROM 语句（删除表中所有数据）"""
+    tree = common_db.global_syn_tree
+    if tree is None or tree.value != 'DeleteStmt':
+        print("不是 DELETE FROM 语句")
+        return False
+
+    # 获取表名
+    table_name_node = tree.children[0]
+    if isinstance(table_name_node, bytes):
+        table_name = table_name_node.decode('utf-8')
+    else:
+        table_name = str(table_name_node)
+    table_name = table_name.strip()
+    table_name_bytes = table_name.encode('utf-8')
+
+    # 检查表是否存在
+    if not schema_obj.find_table(table_name_bytes):
+        print(f"表 '{table_name}' 不存在")
+        return False
+
+    # 获取字段信息
+    original_field_list = schema_obj.headObj.tableFields.get(table_name_bytes, [])
+
+    if not original_field_list:
+        print(f"表 '{table_name}' 没有字段定义")
+        return False
+
+    # 转换字段名：bytes → 字符串，并去掉空格
+    field_list = []
+    for fname, ftype, flen in original_field_list:
+        if isinstance(fname, bytes):
+            fname = fname.decode('utf-8').strip()
+        field_list.append((fname, ftype, flen))
+
+    # 删除原数据文件
+    storage_db.Storage.remove_table_file(table_name)
+
+    # 重新创建空的表结构（使用转换后的 field_list）
+    storage = storage_db.Storage(table_name_bytes, field_list=field_list)
+    del storage
+
+    print(f"表 '{table_name}' 的所有数据已删除")
+    return True
+
+
+# --------------------------------
+# Author: 但芸妍
+# 新增：执行 UPDATE SET
+# ---------------------------------
+def execute_update(schema_obj):
+    """执行 UPDATE SET 语句"""
+    tree = common_db.global_syn_tree
+    if tree is None or tree.value != 'UpdateStmt':
+        print("不是 UPDATE SET 语句")
+        return False
+
+    # 获取表名
+    table_name_node = tree.children[0]
+    if isinstance(table_name_node, bytes):
+        table_name = table_name_node.decode('utf-8')
+    else:
+        table_name = str(table_name_node)
+    table_name = table_name.strip()
+    table_name_bytes = table_name.encode('utf-8')
+
+    # 检查表是否存在
+    if not schema_obj.find_table(table_name_bytes):
+        print(f"表 '{table_name}' 不存在")
+        return False
+
+    # 获取 AssignList 节点
+    assign_node = tree.children[1]
+
+    # 解析要更新的字段和值
+    update_field = assign_node.children[0]
+    update_value = assign_node.children[1]
+
+    if isinstance(update_field, bytes):
+        update_field = update_field.decode('utf-8')
+    else:
+        update_field = str(update_field)
+    update_field = update_field.strip()
+
+    if isinstance(update_value, bytes):
+        update_value = update_value.decode('utf-8')
+    else:
+        update_value = str(update_value)
+    update_value = update_value.strip()
+    if update_value.startswith("'") and update_value.endswith("'"):
+        update_value = update_value[1:-1]
+
+    # 获取 Cond 节点
+    cond_node = tree.children[2]
+
+    # 解析条件字段和值
+    cond_field = cond_node.children[0].children[0]
+    cond_value = cond_node.children[2].children[0]
+
+    if isinstance(cond_field, bytes):
+        cond_field = cond_field.decode('utf-8')
+    else:
+        cond_field = str(cond_field)
+    cond_field = cond_field.strip()
+
+    if isinstance(cond_value, bytes):
+        cond_value = cond_value.decode('utf-8')
+    else:
+        cond_value = str(cond_value)
+    cond_value = cond_value.strip()
+    if cond_value.startswith("'") and cond_value.endswith("'"):
+        cond_value = cond_value[1:-1]
+
+    # 执行更新
+    storage = storage_db.Storage(table_name)
+    success, result = storage.update_record_by_field(
+        cond_field, cond_value, update_field, update_value
+    )
+    del storage
+
+    if success:
+        print(f"成功更新 {result} 条记录")
+    else:
+        print(result)
+    return success
+
+
+# --------------------------------
+# Author: 但芸妍
+# 新增：执行 DROP TABLE
+# ---------------------------------
+def execute_drop(schema_obj):
+    """执行 DROP TABLE 语句"""
+    tree = common_db.global_syn_tree
+    if tree is None or tree.value != 'DropStmt':
+        print("不是 DROP TABLE 语句")
+        return False
+
+    # 获取表名
+    table_name_node = tree.children[0]
+    if isinstance(table_name_node, bytes):
+        table_name = table_name_node.decode('utf-8')
+    else:
+        table_name = str(table_name_node)
+    table_name = table_name.strip()
+    table_name_bytes = table_name.encode('utf-8')
+
+    # 检查表是否存在
+    if not schema_obj.find_table(table_name_bytes):
+        print(f"表 '{table_name}' 不存在")
+        return False
+
+    # 删除表（包括模式和数据）
+    if schema_obj.delete_table(table_name_bytes):
+        print(f"表 '{table_name}' 已删除")
+        return True
+    else:
+        print(f"删除表 '{table_name}' 失败")
+        return False
 
 '''
 # the following is to test the code

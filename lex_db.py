@@ -1,37 +1,32 @@
-#-------------------------------
+# -------------------------------
 # lex_db.py
 # author: Jingyu Han hjymail@163.com
-# modified by: 胡丹
-#--------------------------------------------
+# modified by:但芸妍
+# --------------------------------------------
 # the module is responsible for
-#(1) defining tokens used for parsing SQL statements
-#(2) constructing a lex object
-#-------------------------------
+# (1) defining tokens used for parsing SQL statements
+# (2) constructing a lex object
+# -------------------------------
+
+'''
+t.value: select    *    from    students
+           ↓       ↓     ↓         ↓
+t.type:  SELECT   STAR  FROM     TCNAME
+'''
+
+'''
+    PLY 会扫描当前模块中所有以 t_ 开头的函数，把它们自动注册为 token 匹配规则
+'''
+
 import ply.lex as lex
 import common_db
+import re  # 添加
 
-# 修改原因：增加 DDL/DML 语句所需 token，实验2 选做支持 CREATE TABLE / INSERT INTO / DELETE / UPDATE / DROP
-tokens=('SELECT','FROM','WHERE','AND','TCNAME','EQX','COMMA','CONSTANT','SPACE','STAR',
-        'CREATE','TABLE','INSERT','INTO','VALUES','DROP','DELETE','UPDATE','SET',
-        'CHAR','INTEGER',
-        'LPAREN','RPAREN','SEMICOLON')
-
-# the following is to defining rules for each token
-def t_SELECT(t):
-    r'select'
-    return t
-
-def t_FROM(t):
-    r'from'
-    return t
-
-def t_WHERE(t):
-    r'where'
-    return t
-
-def t_AND(t):
-    r'and'
-    return t
+# Author: 但芸妍
+# 修改：实验2需要支持 * 通配符，添加 STAR token
+# 新增：添加新的token
+tokens = ('SELECT', 'FROM', 'WHERE', 'AND', 'TCNAME', 'EQX', 'COMMA', 'CONSTANT', 'SPACE', 'STAR',
+          'CREATE', 'TABLE', 'INSERT', 'INTO', 'VALUES', 'DELETE', 'UPDATE', 'SET', 'DROP', 'LPAREN', 'RPAREN', 'CHAR', 'INTEGER', 'VARSTR')
 
 def t_CREATE(t):
     r'create'
@@ -53,10 +48,6 @@ def t_VALUES(t):
     r'values'
     return t
 
-def t_DROP(t):
-    r'drop'
-    return t
-
 def t_DELETE(t):
     r'delete'
     return t
@@ -69,33 +60,8 @@ def t_SET(t):
     r'set'
     return t
 
-def t_CHAR(t):
-    r'char'
-    return t
-
-def t_INTEGER(t):
-    r'integer'
-    return t
-
-def t_TCNAME(t):
-    r'[A-Z_a-z]\w*'
-    return t
-
-def t_COMMA(t):
-    r','
-    return t
-
-def t_EQX(t):
-    r'[=]'
-    return t
-
-# 修改原因：[^']* 匹配除单引号外的任意字符序列，解决 'database system' 含空格无法识别的问题
-def t_CONSTANT(t):
-    r"\d+|'[^']*'"
-    return t
-
-def t_STAR(t):
-    r'\*'
+def t_DROP(t):
+    r'drop'
     return t
 
 def t_LPAREN(t):
@@ -106,35 +72,93 @@ def t_RPAREN(t):
     r'\)'
     return t
 
-def t_SEMICOLON(t):
-    r';'
+def t_CHAR(t):
+    r'char'
+    return t
+
+def t_INTEGER(t):
+    r'integer'
+    return t
+
+def t_VARSTR(t):
+    r'varstr'
+    return t
+
+# the following is to defining rules for each token
+def t_SELECT(t):
+    r'select'
+    return t
+
+
+def t_FROM(t):
+    r'from'
+    return t
+
+
+def t_WHERE(t):
+    r'where'
+    return t
+
+def t_AND(t):
+    r'and'
+    return t
+
+
+def t_COMMA(t):
+    r','
+    return t
+
+
+def t_EQX(t):
+    r'[=]'
+    return t
+
+# 修改：新增 * 通配符的识别规则
+def t_STAR(t):
+    r'\*'
+    return t
+
+def t_CONSTANT(t):
+    # r'\d+|\'\w+\''
+    r"\d+|'[^']*'"  # 修改：匹配空格
     return t
 
 def t_SPACE(t):
     r'\s+'
     pass
 
-#--------------------------
+def t_TCNAME(t):
+    r'[A-Z_a-z]\w*'
+    return t
+
+
+# --------------------------
 # to cope with the error
-#------------------------
+# ------------------------
 
 def t_error(t):
     try:
-        print ('wrong')
+
+        print('wrong')
+
     except lex.LexError:
-        print ('wrong')
+        print('wrong')
+
     else:
-        print ('wrong')
+        print('wrong')
 
 
-#------------------------------------------
+# ------------------------------------------
 # to set the global_lexer in common_db.py
-#-------------------------------------------
+# 创建并设置一个全局的词法分析器对象，供整个程序使用
+# -------------------------------------------
 def set_lex_handle():
-    common_db.global_lexer=lex.lex()
-    if common_db.global_lexer is None:
-        print ('wrong when the global_lex is created')
+    if common_db.global_lexer is not None:
+        return
 
+    common_db.global_lexer = lex.lex(reflags=re.IGNORECASE)  #在 lex.lex() 中添加 reflags=re.IGNORECASE 参数，PLY 就会自动忽略所有 token 规则中的大小写
+    if common_db.global_lexer is None:
+        print('wrong when the global_lex is created')
 
 
 '''
