@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------
 # storage_db.py
 # Author: Jingyu Han  hjymail@163.com
-# modified by: 胡丹
+# modified by: 胡丹，马焱涵
 # -----------------------------------------------------------------------
 # the module is to store tables in files
 # Each table is stored in a separate file with the suffix ".dat".
@@ -57,6 +57,8 @@ from common_db import BLOCK_SIZE
 # field_n_value
 # -------------------------
 
+# 【M】导入事务模块
+from transaction_log import *
 
 import struct
 import os
@@ -258,7 +260,8 @@ class Storage(object):
 
         for record in remaining_records:
             insert_values = self._record_to_insert_values(record)
-            if not self.insert_record(insert_values):
+            # 【M】修改，添加is_recovery=True参数，因为该操作属于内部操作不能生成事务日志
+            if not self.insert_record(insert_values, is_recovery=True):
                 return False
         return True
 
@@ -335,6 +338,8 @@ class Storage(object):
         # 修改原因：query_plan_db 传入 str 表名，统一转为 bytes 避免 str+bytes 拼接报错
         if isinstance(tablename, str):
             tablename = tablename.encode('utf-8')
+        # 【M】新增，保证self.table_name永远是bytes，后面日志模块就能直接使用
+        self.table_name = tablename
 
         self.record_list = []
         self.record_Position = []
@@ -516,7 +521,8 @@ class Storage(object):
         return self.record_list
 
 
-    def insert_record(self, insert_record):
+# 【M】修改函数参数，用于区分正常插入和恢复插入
+    def insert_record(self, insert_record,  is_recovery=False):
         """
         功能：向表中插入一行数据先逐字段校验类型（str/int/bool）和长度限制，
               再将记录格式化为定长二进制串写入 .dat 文件对应数据块
@@ -588,6 +594,23 @@ class Storage(object):
             last_Position = self.record_Position[-1]
 
         self.record_list.append(tuple(tmpRecord))
+
+        # 【M】新增，先记后写规则（WAL）
+        txn_id = None
+
+        if not is_recovery:
+
+            txn_id = generate_txn_id()
+
+            begin_transaction(txn_id)
+
+            write_before_image(txn_id, "INSERT", self.table_name)
+
+            write_after_image(txn_id, "INSERT", self.table_name, tmpRecord)
+
+            commit_transaction(txn_id)
+            # 模拟提交后、写入数据库前崩溃
+            # os._exit(0)
 
         # Step5: Write new record into file xxx.dat
         offset_table_pos = (struct.calcsize('!ii') +
@@ -696,7 +719,8 @@ class Storage(object):
 
         return True, len(deleted_entries)
 
-    def update_record_by_field(self, condition_field_name, condition_field_value, target_field_name, new_field_value):
+    # 【M】增加参数is_recovery
+    def update_record_by_field(self, condition_field_name, condition_field_value, target_field_name, new_field_value, is_recovery=False):
         """
         功能描述：按条件字段匹配记录，并更新目标字段为新值，返回更新条数
         输入参数：condition_field_name: str/bytes，条件字段名；condition_field_value: str，条件匹配值；target_field_name: str/bytes，要更新的字段名；new_field_value: str，新值
@@ -731,20 +755,49 @@ class Storage(object):
 
         updated_records = []
         updated_count = 0
+
+        txn_id = None
+        # 【M】恢复阶段不生成新事务
+        if not is_recovery:
+            txn_id = generate_txn_id()
+            begin_transaction(txn_id)
+
         for record in self.record_list:
             current_record = list(record)
             current_condition_value = self._normalize_record_value_for_compare(
                 condition_field_type, current_record[condition_field_index])
             if current_condition_value == converted_condition_value:
+                # 【M】写前像
+                if not is_recovery:
+                    write_before_image(txn_id, "UPDATE", self.table_name, list(record))
+
                 current_record[target_field_index] = converted_new_value
+                # 【M】写后像
+                if not is_recovery:
+                    write_after_image(txn_id, "UPDATE", self.table_name, current_record)
+
                 updated_count += 1
             updated_records.append(tuple(current_record))
 
         if updated_count == 0:
+            # 【M】避免残留事务
+            if not is_recovery:
+                remove_active_transaction(txn_id)
             return True, 0
 
-        if not self._rebuild_storage_records(updated_records):
-            return False, 'failed to rebuild the data file after update.'
+        # 【M】先提交
+        if not is_recovery:
+            print("UPDATE提交事务:", txn_id)
+            commit_transaction(txn_id)
+            # 模拟崩溃点：CTL已提交，但DB还没写完
+            os._exit(0)
+            # 提交后写入db
+            if not self._rebuild_storage_records(updated_records):
+                return False, 'failed to rebuild the data file after update.'
+        
+        if not is_recovery:
+            remove_active_transaction(txn_id)
+
         return True, updated_count
 
     # --------------------------------
