@@ -1,7 +1,7 @@
 # -----------------------
 # main_db.py
 # author: Jingyu Han   hjymail@163.com
-# modified by: Ning Wang, Yidan Xu, 胡丹，但芸妍
+# modified by: Ning Wang, Yidan Xu, 胡丹，但芸妍，马焱涵
 # -----------------------------------
 # This is the main loop of the program
 # ---------------------------------------
@@ -207,6 +207,28 @@ def _exec_insert_into(root, schemaObj):
 
 def main():
     print('main function begins to execute')
+
+    # 【M】新增：判断是否异常退出
+    import transaction_log
+    import os
+
+    # 发现异常退出
+    if os.path.exists(transaction_log.SYSTEM_FLAG):
+
+        print("检测到上次异常退出")
+
+        transaction_log.recover()
+
+        os.remove(
+            transaction_log.SYSTEM_FLAG
+        )
+
+    # 创建运行标志
+    with open(
+        transaction_log.SYSTEM_FLAG,
+        "w"
+    ) as f:
+        f.write("RUNNING")
 
     # The instance data of table is stored in binary format, which corresponds to chapter 2-8 of textbook
 
@@ -469,6 +491,13 @@ def main():
 
         elif choice == '.':
             print('main loop finishies')
+            # 【M】新增：正常关闭则删除system.flag
+            if os.path.exists(
+                transaction_log.SYSTEM_FLAG
+            ):
+                os.remove(
+                    transaction_log.SYSTEM_FLAG
+                )
             del schemaObj
             break
 
