@@ -24,7 +24,8 @@ from common_db import BLOCK_SIZE
 
 # the data type is as follows
 # ----------------------------------------------------------
-# 0->str,1->varstr,2->int,3->bool
+# 0->char, 1->varchar, 2->int, 3->bool, 4->float,
+# 5->bit, 6->bit varying, 7->date, 8->time
 # ---------------------------------------------------------------
 
 
@@ -60,6 +61,7 @@ from common_db import BLOCK_SIZE
 import struct
 import os
 import ctypes
+import re  # 修改原因：date/time 格式校验需要正则
 
 STORAGE_DEBUG_OUTPUT = False
 
@@ -137,27 +139,12 @@ class Storage(object):
 
     def _convert_value_by_field_type(self, field_type, raw_value):
         """
-        功能描述：按照字段类型把用户输入转换为可比较的 Python 值
-        输入参数：field_type: int，字段类型编号；raw_value: str，用户输入的原始值
-        返回值：tuple[bool, any]，第一个值表示是否转换成功，第二个值为转换结果
-        异常处理：无；转换失败时返回 False 和 None
+        功能描述：将用户输入转为可比较的 Python 值（委托到 _validate，传大长度跳过长度检查）。
+        输入参数：field_type: int，字段类型编号；raw_value: str，用户输入的原始值。
+        返回值：tuple[bool, any]，成功时返回 (True, 值)，失败时返回 (False, None)。
         """
-        text_value = str(raw_value).strip()
-        if field_type in [0, 1]:
-            return True, text_value
-        if field_type == 2:
-            try:
-                return True, int(text_value)
-            except ValueError:
-                return False, None
-        if field_type == 3:
-            normalized_value = text_value.lower()
-            if normalized_value in ['true', '1', 'yes', 'y']:
-                return True, True
-            if normalized_value in ['false', '0', 'no', 'n']:
-                return True, False
-            return False, None
-        return False, None
+        ok, result = self._validate_value_for_field(field_type, 99999, raw_value)
+        return (True, result) if ok else (False, None)
 
     def _record_to_insert_values(self, record):
         """
@@ -181,11 +168,16 @@ class Storage(object):
         输入参数：field_type: int，字段类型编号；field_value: any，记录中的字段值
         返回值：any，标准化后的可比较值
         """
-        if field_type in [0, 1]:
+        # 修改原因：新类型（float/bit/date/time）存储为字符串，比较前需统一转成对应 Python 类型
+        if field_type in [0, 1, 5, 6, 7, 8]:  # 字符串类：char/varchar/bit/bit varying/date/time
             if isinstance(field_value, bytes):
                 return field_value.decode('utf-8').strip()
             return str(field_value).strip()
-        return field_value
+        if field_type == 4:  # float
+            if isinstance(field_value, bytes):
+                field_value = field_value.decode('utf-8').strip()
+            return float(field_value)
+        return field_value  # int(2) / bool(3) 已由 Storage 读取时转换过
 
     def _validate_value_for_field(self, field_type, field_length, raw_value):
         """
@@ -210,7 +202,28 @@ class Storage(object):
                 return True, True
             if normalized_value in ['false', '0', 'no', 'n']:
                 return True, False
-            return False, 'value type does not match the field type.'
+            return False, 'boolean value must be true/false/1/0/yes/no.'
+        # 修改原因：类型系统扩展到 9 种，新增 float / bit / bit varying / date / time
+        if field_type == 4:  # float / real
+            try:
+                return True, float(text_value)
+            except ValueError:
+                return False, 'value must be a floating-point number.'
+        if field_type in [5, 6]:  # bit(n) / bit varying(n)
+            if not re.match(r'^[01]+$', text_value):
+                return False, 'bit value must consist of only 0 and 1.'
+            if len(text_value) > field_length:
+                return False, 'bit length {0} exceeds maximum {1}.'.format(
+                    len(text_value), field_length)
+            return True, text_value
+        if field_type == 7:  # date YYYY-MM-DD
+            if not re.match(r'^\d{4}-\d{2}-\d{2}$', text_value):
+                return False, 'date must be in YYYY-MM-DD format.'
+            return True, text_value
+        if field_type == 8:  # time HH:MM:SS
+            if not re.match(r'^\d{2}:\d{2}:\d{2}$', text_value):
+                return False, 'time must be in HH:MM:SS format.'
+            return True, text_value
         return False, 'unsupported field type.'
 
     def _rebuild_storage_records(self, remaining_records):
@@ -249,6 +262,24 @@ class Storage(object):
                 return False
         return True
 
+    def _find_free_slot(self):
+        """
+        功能：扫描所有数据块的偏移量表，查找第一个空闲槽位（偏移值 = -1）。
+              这是教材"空闲空间链表"方法的简化版——用 -1 标记逻辑删除，
+              插入时复用这些槽位，无需滑动记录或重建整个文件。
+        返回值：tuple(block_id, record_index) 或 None。
+        """
+        for block_id in range(1, self.data_block_num + 1):
+            self.f_handle.seek(BLOCK_SIZE * block_id)
+            block_buf = self.f_handle.read(BLOCK_SIZE)
+            _, num_records = struct.unpack_from('!ii', block_buf, 0)
+            for i in range(num_records):
+                off = struct.unpack_from('!i', block_buf,
+                                         struct.calcsize('!ii') + i * struct.calcsize('!i'))[0]
+                if off == -1:
+                    return (block_id, i)
+        return None
+
     def _read_positive_int(self, prompt_text):
         """
         功能描述：读取并校验正整数输入，用于字段数量和字段长度等场景
@@ -265,15 +296,13 @@ class Storage(object):
 
     def _read_field_type(self, prompt_text):
         """
-        功能描述：读取字段类型，并限制为实验要求支持的 0/1/2/3 四种类型
-        输入参数：prompt_text: str，输入提示语
-        返回值：int，字段类型编号
-        异常处理：无；输入非法时循环提示重新输入
+        功能描述：读取字段类型，限制为 0-8（char/varchar/int/bool/float/bit/bit varying/date/time）。
+        输入参数：prompt_text: str，输入提示语。
+        返回值：int，字段类型编号（0-8）。
         """
         while True:
-            # 修改原因：字段类型只能为 0/1/2/3，提前校验可避免写入非法模式
             input_value = input(prompt_text).strip()
-            if input_value in ['0', '1', '2', '3']:
+            if input_value in [str(i) for i in range(9)]:
                 return int(input_value)
             print('field type must be one of 0, 1, 2 or 3.')
 
@@ -392,10 +421,20 @@ class Storage(object):
                     field_name = self._read_field_name(i)
                     padded_field_name = ' ' * (10 - len(field_name.strip())) + field_name
                     field_type = self._read_field_type(
-                        "please input the type of field(0-> str; 1-> varstr; 2-> int; 3-> boolean) " + str(i) + " :")
-                    # 修改原因：boolean 类型固定长度 1，跳过询问长度
-                    if int(field_type) == 3:
+                        "please input the type of field"
+                        "(0:char 1:varchar 2:int 3:bool 4:float"
+                        " 5:bit 6:bitvarying 7:date 8:time) " + str(i) + " :")
+                    # 修改原因：有固定长度的类型自动设定，不询问用户
+                    if int(field_type) == 2:     # int
+                        field_length = 4
+                    elif int(field_type) == 3:   # bool
                         field_length = 1
+                    elif int(field_type) == 4:   # float
+                        field_length = 8
+                    elif int(field_type) == 7:   # date
+                        field_length = 10
+                    elif int(field_type) == 8:   # time
+                        field_length = 8
                     else:
                         field_length = self._read_positive_int("please input the length of field " + str(i) + " :")
                     temp_tuple = (padded_field_name, int(field_type), int(field_length))
@@ -442,11 +481,14 @@ class Storage(object):
             # There exists record
             if self.Number_of_Records > 0:
                 for i in range(self.Number_of_Records):
-                    self.record_Position.append((Flag, i))
                     offset = \
                         struct.unpack_from('!i', self.active_data_buf,
                                            struct.calcsize('!ii') + i * struct.calcsize('!i'))[
                             0]
+                    # 修改原因：空闲槽标记 offset=-1 表示逻辑删除，跳过不加载到内存
+                    if offset == -1:
+                        continue
+                    self.record_Position.append((Flag, i))
                     record = struct.unpack_from('!' + str(record_content_len) + 's', self.active_data_buf,
                                                 offset + record_head_len)[0]
                     tmp = 0
@@ -454,10 +496,13 @@ class Storage(object):
                     for field in self.field_name_list:
                         t = record[tmp:tmp + field[2]].strip()
                         tmp = tmp + field[2]
-                        if field[1] == 2:
+                        # 修改原因：类型系统扩展，float 也需从字符串转回数值
+                        if field[1] == 2:       # int
                             t = int(t)
-                        if field[1] == 3:
+                        if field[1] == 3:       # bool
                             t = bool(t)
+                        if field[1] == 4:       # float
+                            t = float(t)
                         tmpList.append(t)
                     self.record_list.append(tuple(tmpList))
             Flag += 1
@@ -487,26 +532,30 @@ class Storage(object):
         tmpRecord = []
         for idx in range(len(self.field_name_list)):
             insert_record[idx] = insert_record[idx].strip()
-            if self.field_name_list[idx][1] == 0 or self.field_name_list[idx][1] == 1:
+            if self.field_name_list[idx][1] in [0, 1, 5, 6, 7, 8]:  # 字符串类
                 if len(insert_record[idx]) > self.field_name_list[idx][2]:
                     return False
                 tmpRecord.append(insert_record[idx])
-            if self.field_name_list[idx][1] == 2:
+            if self.field_name_list[idx][1] == 2:  # int
                 try:
                     tmpRecord.append(int(insert_record[idx]))
                 except:
                     return False
-            if self.field_name_list[idx][1] == 3:
+            if self.field_name_list[idx][1] == 3:  # bool
                 try:
                     tmpRecord.append(bool(insert_record[idx]))
+                except:
+                    return False
+            # 修改原因：类型系统扩展到 9 种，新增 float
+            if self.field_name_list[idx][1] == 4:  # float
+                try:
+                    tmpRecord.append(float(insert_record[idx]))
                 except:
                     return False
             insert_record[idx] = ' ' * (self.field_name_list[idx][2] - len(insert_record[idx])) + insert_record[idx]
 
         # step2: Add tmpRecord to record_list ; change insert_record into inputstr
         inputstr = ''.join(insert_record)
-
-        self.record_list.append(tuple(tmpRecord))
 
         # Step3: To calculate MaxNum in each Data Blocks
         record_content_len = len(inputstr)
@@ -515,47 +564,66 @@ class Storage(object):
         MAX_RECORD_NUM = (BLOCK_SIZE - struct.calcsize('!i') - struct.calcsize('!ii')) / (
                 record_len + struct.calcsize('!i'))
 
-        # Step4: To calculate new record Position
-        if not len(self.record_Position):
-            self.data_block_num += 1
-            self.record_Position.append((1, 0))
-        else:
-            last_Position = self.record_Position[-1]
-            if last_Position[1] == MAX_RECORD_NUM - 1:
-                self.record_Position.append((last_Position[0] + 1, 0))
-                self.data_block_num += 1
-            else:
-                self.record_Position.append((last_Position[0], last_Position[1] + 1))
+        # Step4: 先扫描空闲槽位（偏移 = -1），复用已删记录的位置，再决定是否追加
+        free_slot = self._find_free_slot()
+        reuse_slot = free_slot is not None
 
-        last_Position = self.record_Position[-1]
+        if reuse_slot:
+            # 复用空闲槽位：无需修改块首部记录数和 data_block_num
+            print('  >> 复用空闲槽位: block={0}, slot={1}'.format(
+                free_slot[0], free_slot[1]))
+            last_Position = free_slot
+        else:
+            # 无空闲槽位，按堆文件方式追加到末尾
+            if not len(self.record_Position):
+                self.data_block_num += 1
+                self.record_Position.append((1, 0))
+            else:
+                prev = self.record_Position[-1]
+                if prev[1] == MAX_RECORD_NUM - 1:
+                    self.record_Position.append((prev[0] + 1, 0))
+                    self.data_block_num += 1
+                else:
+                    self.record_Position.append((prev[0], prev[1] + 1))
+            last_Position = self.record_Position[-1]
+
+        self.record_list.append(tuple(tmpRecord))
 
         # Step5: Write new record into file xxx.dat
-        # update data_block_num
-        self.f_handle.seek(0)
-        self.buf = ctypes.create_string_buffer(struct.calcsize('!ii'))
-        struct.pack_into('!ii', self.buf, 0, 0, self.data_block_num)
-        self.f_handle.write(self.buf)
-        self.f_handle.flush()
-
-        # update data block head
-        self.f_handle.seek(BLOCK_SIZE * last_Position[0])
-        self.buf = ctypes.create_string_buffer(struct.calcsize('!ii'))
-        struct.pack_into('!ii', self.buf, 0, last_Position[0], last_Position[1] + 1)
-        self.f_handle.write(self.buf)
-        self.f_handle.flush()
-
-        # update data offset
-        offset = struct.calcsize('!ii') + last_Position[1] * struct.calcsize('!i')
+        offset_table_pos = (struct.calcsize('!ii') +
+                           last_Position[1] * struct.calcsize('!i'))
         beginIndex = BLOCK_SIZE - (last_Position[1] + 1) * record_len
-        self.f_handle.seek(BLOCK_SIZE * last_Position[0] + offset)
-        self.buf = ctypes.create_string_buffer(struct.calcsize('!i'))
-        struct.pack_into('!i', self.buf, 0, beginIndex)
-        self.f_handle.write(self.buf)
-        self.f_handle.flush()
 
-        # update data
+        if reuse_slot:
+            # 复用槽位：只更新偏移表项 + 重写记录数据，不改块首部
+            self.f_handle.seek(BLOCK_SIZE * last_Position[0] + offset_table_pos)
+            self.buf = ctypes.create_string_buffer(struct.calcsize('!i'))
+            struct.pack_into('!i', self.buf, 0, beginIndex)
+            self.f_handle.write(self.buf)
+            self.f_handle.flush()
+        else:
+            # 追加模式：更新 data_block_num + 块首部记录数 + 偏移表项
+            self.f_handle.seek(0)
+            self.buf = ctypes.create_string_buffer(struct.calcsize('!ii'))
+            struct.pack_into('!ii', self.buf, 0, 0, self.data_block_num)
+            self.f_handle.write(self.buf)
+            self.f_handle.flush()
+
+            self.f_handle.seek(BLOCK_SIZE * last_Position[0])
+            self.buf = ctypes.create_string_buffer(struct.calcsize('!ii'))
+            struct.pack_into('!ii', self.buf, 0, last_Position[0], last_Position[1] + 1)
+            self.f_handle.write(self.buf)
+            self.f_handle.flush()
+
+            self.f_handle.seek(BLOCK_SIZE * last_Position[0] + offset_table_pos)
+            self.buf = ctypes.create_string_buffer(struct.calcsize('!i'))
+            struct.pack_into('!i', self.buf, 0, beginIndex)
+            self.f_handle.write(self.buf)
+            self.f_handle.flush()
+
+        # 写入记录数据（两种模式都需要）
         record_schema_address = struct.calcsize('!iii')
-        update_time = '2016-11-16'  # update time
+        update_time = '2016-11-16'
         self.f_handle.seek(BLOCK_SIZE * last_Position[0] + beginIndex)
         self.buf = ctypes.create_string_buffer(record_len)
         struct.pack_into('!ii10s', self.buf, 0, record_schema_address, record_content_len, update_time.encode('utf-8'))
@@ -583,11 +651,11 @@ class Storage(object):
 
     def delete_record_by_field(self, field_name, field_value):
         """
-        功能描述：按指定字段和值删除匹配记录，并返回删除条数
-        输入参数：field_name: str/bytes，条件字段名；field_value: str，用户输入的匹配值
-        返回值：tuple[bool, int/str]，成功时返回 True 和删除条数，失败时返回 False 和错误信息
+        功能描述：按指定字段和值删除记录。在偏移量表中标记 -1（逻辑删除），
+                  插入时通过 _find_free_slot 复用这些槽位，无需滑动记录或重写整个文件。
+        输入参数：field_name: str/bytes，条件字段名；field_value: str，匹配值。
+        返回值：tuple[bool, int/str]。
         """
-        # 修改原因：补全选项 6 的底层数据删除能力，支持字符串、整数、布尔值三类匹配
         normalized_field_name = self._normalize_field_name(field_name)
         field_name_list = [self._normalize_field_name(field_info[0]) for field_info in self.field_name_list]
         if normalized_field_name not in field_name_list:
@@ -599,21 +667,34 @@ class Storage(object):
         if not is_valid:
             return False, 'value type does not match the field type.'
 
-        remaining_records = []
-        deleted_count = 0
-        for record in self.record_list:
+        # 第一遍扫描：找到所有匹配记录的 (内存索引, block_id, record_index)
+        deleted_entries = []
+        for idx, record in enumerate(self.record_list):
             current_value = self._normalize_record_value_for_compare(field_type, record[field_index])
             if current_value == converted_field_value:
-                deleted_count += 1
-            else:
-                remaining_records.append(record)
+                block_id, rec_idx = self.record_Position[idx]
+                deleted_entries.append((idx, block_id, rec_idx))
 
-        if deleted_count == 0:
+        if len(deleted_entries) == 0:
             return True, 0
 
-        if not self._rebuild_storage_records(remaining_records):
-            return False, 'failed to rebuild the data file after deletion.'
-        return True, deleted_count
+        # 从后往前处理，避免索引错位
+        for mem_idx, block_id, rec_idx in sorted(deleted_entries, reverse=True):
+            # 在偏移量表中写入 -1，标记该槽位为空闲
+            offset_entry_pos = (BLOCK_SIZE * block_id +
+                               struct.calcsize('!ii') +
+                               rec_idx * struct.calcsize('!i'))
+            self.f_handle.seek(offset_entry_pos)
+            self.buf = ctypes.create_string_buffer(struct.calcsize('!i'))
+            struct.pack_into('!i', self.buf, 0, -1)
+            self.f_handle.write(self.buf)
+            self.f_handle.flush()
+
+            # 从内存列表中移除
+            del self.record_list[mem_idx]
+            del self.record_Position[mem_idx]
+
+        return True, len(deleted_entries)
 
     def update_record_by_field(self, condition_field_name, condition_field_value, target_field_name, new_field_value):
         """

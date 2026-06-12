@@ -26,7 +26,10 @@ import re  # 添加
 # 修改：实验2需要支持 * 通配符，添加 STAR token
 # 新增：添加新的token
 tokens = ('SELECT', 'FROM', 'WHERE', 'AND', 'TCNAME', 'EQX', 'COMMA', 'CONSTANT', 'SPACE', 'STAR',
-          'CREATE', 'TABLE', 'INSERT', 'INTO', 'VALUES', 'DELETE', 'UPDATE', 'SET', 'DROP', 'LPAREN', 'RPAREN', 'CHAR', 'INTEGER', 'VARSTR')
+          'CREATE', 'TABLE', 'INSERT', 'INTO', 'VALUES', 'DELETE', 'UPDATE', 'SET', 'DROP',
+          'LPAREN', 'RPAREN',
+          'CHAR', 'VARCHAR', 'INT', 'INTEGER', 'FLOAT', 'REAL',
+          'BIT', 'VARBIT', 'DATE', 'TIME')
 
 def t_CREATE(t):
     r'create'
@@ -80,8 +83,40 @@ def t_INTEGER(t):
     r'integer'
     return t
 
+def t_VARCHAR(t):
+    r'varchar'
+    return t
+
 def t_VARSTR(t):
     r'varstr'
+    return t
+
+def t_INT(t):
+    r'int'
+    return t
+
+def t_FLOAT(t):
+    r'float'
+    return t
+
+def t_REAL(t):
+    r'real'
+    return t
+
+def t_BIT(t):
+    r'bit'
+    return t
+
+def t_VARBIT(t):
+    r'bit\s*varying'  # 匹配 "bit varying"（含空格）
+    return t
+
+def t_DATE(t):
+    r'date'
+    return t
+
+def t_TIME(t):
+    r'time'
     return t
 
 # the following is to defining rules for each token

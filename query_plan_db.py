@@ -467,22 +467,27 @@ def _parse_type_def(node, fname, field_list):
         type_name = str(type_name_node)
     type_name = type_name.strip().lower()
 
+    # 修改原因：类型系统扩展到 9 种，与 main_db._exec_create_table 保持同步
     if type_name == 'char':
-        ftype = 0  # str
-        # 获取长度
-        if len(node.children) > 1:
-            flen = int(node.children[1])
-        else:
-            flen = 10  # 默认长度
-    elif type_name == 'varstr':
-        ftype = 1  # varstr
-        if len(node.children) > 1:
-            flen = int(node.children[1])
-        else:
-            flen = 20  # 默认长度
-    elif type_name == 'integer':
-        ftype = 2  # int
-        flen = 4
+        ftype = 0
+        flen = int(node.children[1]) if len(node.children) > 1 else 10
+    elif type_name in ('varchar', 'varstr'):
+        ftype = 1
+        flen = int(node.children[1]) if len(node.children) > 1 else 255
+    elif type_name in ('int', 'integer'):
+        ftype, flen = 2, 4
+    elif type_name in ('float', 'real'):
+        ftype, flen = 4, 8
+    elif type_name == 'bit':
+        ftype = 5
+        flen = int(node.children[1]) if len(node.children) > 1 else 8
+    elif type_name in ('bit varying', 'bitvaring'):
+        ftype = 6
+        flen = int(node.children[1]) if len(node.children) > 1 else 64
+    elif type_name == 'date':
+        ftype, flen = 7, 10
+    elif type_name == 'time':
+        ftype, flen = 8, 8
     else:
         print(f"不支持的字段类型: {type_name}")
         return

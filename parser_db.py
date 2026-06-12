@@ -270,6 +270,39 @@ def p_type_def_integer(t):
     'TypeDef : INTEGER'
     t[0] = common_db.Node('TypeDef', [t[1]])
 
+# 修改原因：类型系统扩展到 9 种，新增 varchar / int / float / real / bit / bit varying / date / time
+def p_type_def_varchar(t):
+    'TypeDef : VARCHAR LPAREN CONSTANT RPAREN'
+    t[0] = common_db.Node('TypeDef', [t[1], t[3]])
+
+def p_type_def_int(t):
+    'TypeDef : INT'
+    t[0] = common_db.Node('TypeDef', [t[1]])
+
+def p_type_def_float(t):
+    'TypeDef : FLOAT'
+    t[0] = common_db.Node('TypeDef', [t[1]])
+
+def p_type_def_real(t):
+    'TypeDef : REAL'
+    t[0] = common_db.Node('TypeDef', [t[1]])
+
+def p_type_def_bit(t):
+    'TypeDef : BIT LPAREN CONSTANT RPAREN'
+    t[0] = common_db.Node('TypeDef', [t[1], t[3]])
+
+def p_type_def_bitvarying(t):
+    'TypeDef : BIT VARBIT LPAREN CONSTANT RPAREN'
+    t[0] = common_db.Node('TypeDef', [t[1], t[4]])
+
+def p_type_def_date(t):
+    'TypeDef : DATE'
+    t[0] = common_db.Node('TypeDef', [t[1]])
+
+def p_type_def_time(t):
+    'TypeDef : TIME'
+    t[0] = common_db.Node('TypeDef', [t[1]])
+
 
 # ============================================================
 # Author: 但芸妍

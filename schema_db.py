@@ -14,11 +14,17 @@ import os
 import struct
 import head_db # it is main memory structure for the table schema
 
+# 修改原因：类型系统从 4 种扩展到 9 种，支持基本 SQL 数据类型
 FIELD_TYPE_NAME_MAP = {
-    0: 'str',
-    1: 'varstr',
-    2: 'int',
-    3: 'bool'
+    0: 'char',        # 定长字符串
+    1: 'varchar',     # 变长字符串
+    2: 'int',         # 整数
+    3: 'bool',        # 布尔
+    4: 'float',       # 浮点数
+    5: 'bit',         # 定长位串
+    6: 'bit varying', # 变长位串
+    7: 'date',        # 日期 YYYY-MM-DD
+    8: 'time'         # 时间 HH:MM:SS
 }
 
 #the following is metaHead structure,which is 12 bytes
@@ -450,11 +456,12 @@ class Schema(object):
                 (fieldName,fieldType,fieldLength)=fieldList[i]
                 # 先处理字段名
 
-                if len(fieldName.strip())<10:
-                    if isinstance(fieldName,str): #判断 fieldName 是不是字符串类型
-                        fieldName=fieldName.encode('utf-8') #转bytes
-                    # 补空格到10字节⚠️用错常量
-                    filledFieldName = (' ' * (MAX_FIELD_NAME_LEN - len(fieldName.strip()))).encode('utf-8') + fieldName
+                if len(fieldName.strip()) < MAX_FIELD_NAME_LEN:
+                    if isinstance(fieldName, str):
+                        fieldName = fieldName.encode('utf-8')
+                    # 先 strip 去空格再填，避免 Storage 已填充的定长字段名被重复填充
+                    fieldName = fieldName.strip()
+                    filledFieldName = (' ' * (MAX_FIELD_NAME_LEN - len(fieldName))).encode('utf-8') + fieldName
                 
                 if isinstance(filledFieldName,str):
                     filledFieldName=filledFieldName.encode('utf-8')
