@@ -873,3 +873,155 @@ class Storage(object):
             self.f_handle.write(self.buf)
             self.f_handle.flush()
             self.f_handle.close()
+
+    # --------------------------------
+    # Author: 郑许博雅
+    # 新增：根据位置读取记录
+    # ---------------------------------
+    def read_record_by_position(self, block_id, slot_id):
+        """根据块号和槽位读取记录"""
+        import struct
+        try:
+            self.f_handle.seek(block_id * BLOCK_SIZE)
+            block_buf = self.f_handle.read(BLOCK_SIZE)
+            
+            # 解析偏移表，获取记录起始位置
+            offset = struct.unpack_from('!i', block_buf, struct.calcsize('!ii') + slot_id * 4)[0]
+            
+            # 读取记录
+            record_head_len = struct.calcsize('!ii10s')
+            record_content_len = struct.unpack_from('!i', block_buf, offset + 4)[0]
+            record_data = struct.unpack_from(f'!{record_content_len}s', block_buf, offset + record_head_len)[0]
+            
+            # 解析记录字段
+            tmp = 0
+            record = []
+            for field in self.field_name_list:
+                t = record_data[tmp:tmp + field[2]].strip()
+                tmp += field[2]
+                if field[1] == 2:
+                    t = int(t)
+                if field[1] == 3:
+                    t = bool(t)
+                record.append(t)
+            return tuple(record)
+        except Exception as e:
+            print(f"读取记录失败: {e}")
+            return None
+        
+#该函数用于测试索引效果，不包含事务回滚
+    def insert_record_simple(self, insert_record):
+        """
+        简化版插入方法，用于测试索引性能
+        不涉及事务、不涉及空闲槽位复用
+        """
+        # step 1: 校验字段
+        tmpRecord = []
+        formatted_values = []
+        
+        for idx in range(len(self.field_name_list)):
+            val = insert_record[idx].strip()
+            field_type = self.field_name_list[idx][1]
+            field_len = self.field_name_list[idx][2]
+            
+            if field_type in [0, 1, 5, 6, 7, 8]:  # 字符串类
+                if len(val) > field_len:
+                    print(f"字段 {idx} 长度超限: {len(val)} > {field_len}")
+                    return False
+                tmpRecord.append(val)
+                formatted_values.append(val.ljust(field_len, ' '))
+                
+            elif field_type == 2:  # int
+                try:
+                    int_val = int(val)
+                    tmpRecord.append(int_val)
+                    str_val = str(int_val)
+                    if len(str_val) > field_len:
+                        return False
+                    formatted_values.append(str_val.rjust(field_len, ' '))
+                except:
+                    return False
+                    
+            elif field_type == 3:  # bool
+                try:
+                    bool_val = val.lower() in ('true', '1', 'yes', 't')
+                    tmpRecord.append(bool_val)
+                    formatted_values.append('1' if bool_val else '0')
+                except:
+                    return False
+                    
+            elif field_type == 4:  # float
+                try:
+                    float_val = float(val)
+                    tmpRecord.append(float_val)
+                    str_val = f"{float_val:.2f}"
+                    if len(str_val) > field_len:
+                        str_val = str_val[:field_len]
+                    formatted_values.append(str_val.rjust(field_len, ' '))
+                except:
+                    return False
+        
+        # step 2: 组装记录
+        inputstr = ''.join(formatted_values)
+        record_content_len = len(inputstr)
+        record_head_len = struct.calcsize('!ii10s')
+        record_len = record_head_len + record_content_len
+        
+        # step 3: 计算每块最大记录数
+        MAX_RECORD_NUM = (BLOCK_SIZE - struct.calcsize('!i') - struct.calcsize('!ii')) // (record_len + struct.calcsize('!i'))
+        
+        if MAX_RECORD_NUM <= 0:
+            MAX_RECORD_NUM = 1
+        
+        # step 4: 计算插入位置
+        if not len(self.record_Position):
+            self.data_block_num += 1
+            self.record_Position.append((1, 0))
+        else:
+            last = self.record_Position[-1]
+            if last[1] >= MAX_RECORD_NUM - 1:
+                self.record_Position.append((last[0] + 1, 0))
+                self.data_block_num += 1
+            else:
+                self.record_Position.append((last[0], last[1] + 1))
+        
+        last_Position = self.record_Position[-1]
+        self.record_list.append(tuple(tmpRecord))
+        
+        # step 5: 写入磁盘
+        # 更新 data_block_num 到块0
+        self.f_handle.seek(0)
+        buf = ctypes.create_string_buffer(struct.calcsize('!ii'))
+        struct.pack_into('!ii', buf, 0, 0, self.data_block_num)
+        self.f_handle.write(buf)
+        self.f_handle.flush()
+        
+        # 更新数据块头部的记录数
+        self.f_handle.seek(BLOCK_SIZE * last_Position[0])
+        buf = ctypes.create_string_buffer(struct.calcsize('!ii'))
+        struct.pack_into('!ii', buf, 0, last_Position[0], last_Position[1] + 1)
+        self.f_handle.write(buf)
+        self.f_handle.flush()
+        
+        # 写入偏移表
+        offset_pos = struct.calcsize('!ii') + last_Position[1] * struct.calcsize('!i')
+        beginIndex = BLOCK_SIZE - (last_Position[1] + 1) * record_len
+        
+        self.f_handle.seek(BLOCK_SIZE * last_Position[0] + offset_pos)
+        buf = ctypes.create_string_buffer(struct.calcsize('!i'))
+        struct.pack_into('!i', buf, 0, beginIndex)
+        self.f_handle.write(buf)
+        self.f_handle.flush()
+        
+        # 写入记录数据
+        record_schema_address = struct.calcsize('!iii')
+        update_time = '2016-11-16'
+        
+        self.f_handle.seek(BLOCK_SIZE * last_Position[0] + beginIndex)
+        buf = ctypes.create_string_buffer(record_len)
+        struct.pack_into('!ii10s', buf, 0, record_schema_address, record_content_len, update_time.encode('utf-8'))
+        struct.pack_into('!' + str(record_content_len) + 's', buf, record_head_len, inputstr.encode('utf-8'))
+        self.f_handle.write(buf.raw)
+        self.f_handle.flush()
+        
+        return True

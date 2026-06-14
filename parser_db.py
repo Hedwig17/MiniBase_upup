@@ -83,6 +83,12 @@ def p_statement_drop(t):
     check_syn_tree(common_db.global_syn_tree)
     t[0] = t[1]
 
+def p_statement_range(t):
+    'Statement : RangeSearchStmt'
+    common_db.global_syn_tree = t[1]
+    check_syn_tree(common_db.global_syn_tree)
+    t[0] = t[1]
+
 # ------------------------------
 # (1) construct the node for query expression
 # (2) check the tree
@@ -193,7 +199,6 @@ def p_expr_fromlist_first(t):
     t[1] = common_db.Node('TCNAME', [t[1]])
     t[2] = common_db.Node(',', None)
     t[0] = common_db.Node('FromList', [t[1], t[2], t[3]])
-
     return t
 
 
@@ -303,6 +308,11 @@ def p_type_def_time(t):
     'TypeDef : TIME'
     t[0] = common_db.Node('TypeDef', [t[1]])
 
+def p_statement_create_idx(t):
+    'Statement : CreateIdxStmt'
+    common_db.global_syn_tree = t[1]
+    t[0] = t[1]
+
 
 # ============================================================
 # Author: 但芸妍
@@ -359,6 +369,37 @@ def p_drop_stmt(t):
     'DropStmt : DROP TABLE TCNAME'
     t[0] = common_db.Node('DropStmt', [t[3]])
 
+# ============================================================
+# Author: 郑许博雅
+# 新增：CREATE INDEX 语句
+# ============================================================
+
+def p_create_idx_stmt(t):
+    'CreateIdxStmt : CREATE INDEX TCNAME ON TCNAME LPAREN TCNAME RPAREN'
+    # t[1]=CREATE, t[2]=INDEX, t[3]=索引名, t[4]=ON, t[5]=表名, t[6]=LPAREN, t[7]=字段名, t[8]=RPAREN
+    index_name = t[3]   # 索引名
+    table_name = t[5]   # 表名
+    field_name = t[7]   # 字段名
+    t[0] = common_db.Node('CreateIdxStmt', [index_name, table_name, field_name])
+
+
+# ============================================================
+# Author: 郑许博雅
+# 新增：RANGE SEARCH 语句
+# 语法：SELECT * FROM table_name WHERE column_name BETWEEN start_key AND end_key
+# ============================================================
+
+def p_range_search_stmt(t):
+    '''RangeSearchStmt : SELECT STAR FROM TCNAME WHERE TCNAME BETWEEN CONSTANT AND CONSTANT'''
+    # t[1]=SELECT, t[2]=STAR, t[3]=FROM, t[4]=table_name, t[5]=WHERE, 
+    # t[6]=column_name, t[7]=BETWEEN, t[8]=start_key, t[9]=AND, t[10]=end_key
+    table_name = t[4]
+    column_name = t[6]
+    start_key = t[8]
+    end_key = t[10]
+    t[0] = common_db.Node('RangeSearchStmt', [start_key, end_key, table_name, column_name])
+
+
 # ------------------------------
 # for error
 # input:
@@ -389,5 +430,119 @@ def set_handle():
 my_str="select f1,f2 from t1,t2 where f1=9"
 my_parser=yacc.yacc(write_tables=0)# the tabl does not cache
 my_parser.parse(my_str)
+
 '''
 
+# ------------------------------
+# Author: 郑许博雅
+# 调试函数：打印语法树结构
+# ------------------------------
+def debug_print_tree(node, indent=0):
+    """递归打印语法树结构，用于调试"""
+    if node is None:
+        print("  " * indent + "None")
+        return
+    
+    prefix = "  " * indent
+    if isinstance(node, common_db.Node):
+        print(f"{prefix}Node: {node.value}")
+        if node.children:
+            print(f"{prefix}  children: {len(node.children)}")
+            for i, child in enumerate(node.children):
+                print(f"{prefix}  child[{i}]:")
+                debug_print_tree(child, indent + 2)
+    else:
+        print(f"{prefix}Leaf: {node} (type: {type(node).__name__})")
+
+
+def test_parse(sql):
+    """测试解析 SQL 语句并打印语法树"""
+    print(f"\n{'='*60}")
+    print(f"测试解析: {sql}")
+    print(f"{'='*60}")
+    
+    # 设置词法分析器
+    import lex_db
+    if common_db.global_lexer is None:
+        lex_db.set_lex_handle()
+    
+    # 设置语法分析器
+    if common_db.global_parser is None:
+        set_handle()
+    
+    # 执行解析
+    try:
+        common_db.global_lexer.input(sql)
+        result = common_db.global_parser.parse(sql)
+        
+        if result is None:
+            print("解析结果: None (解析失败)")
+            return None
+        
+        print(f"解析结果类型: {type(result).__name__}")
+        if isinstance(result, common_db.Node):
+            print(f"根节点值: {result.value}")
+            print(f"子节点数量: {len(result.children) if result.children else 0}")
+            print("\n语法树结构:")
+            debug_print_tree(result)
+        else:
+            print(f"解析结果: {result}")
+        
+        # 将结果存入全局变量
+        common_db.global_syn_tree = result
+        return result
+    except Exception as e:
+        print(f"解析异常: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+    
+  
+
+# ========== 调试代码（直接运行测试）==========
+if __name__ == '__main__':
+    import lex_db
+    
+    print("=" * 60)
+    print("测试 CREATE INDEX 解析")
+    print("=" * 60)
+    
+    # 初始化词法分析器
+    lex_db.set_lex_handle()
+    set_handle()
+    
+    # 测试语句
+    sql = "create index idx_name on students (name)"
+    print(f"SQL: {sql}\n")
+    
+    # 解析
+    result = common_db.global_parser.parse(sql)
+    
+    if result is None:
+        print("解析失败！")
+    else:
+        print(f"解析成功！")
+        print(f"根节点: {result.value}")
+        print(f"子节点数: {len(result.children) if result.children else 0}")
+        
+        for i, child in enumerate(result.children):
+            print(f"  child[{i}]: {child.value if hasattr(child, 'value') else child}")
+            if hasattr(child, 'children') and child.children:
+                for j, gc in enumerate(child.children):
+                    print(f"    [{i}][{j}]: {gc.value if hasattr(gc, 'value') else gc}")
+    
+    print("\n" + "=" * 60)
+    print("测试 SELECT 解析")
+    print("=" * 60)
+    
+    sql2 = "select * from students"
+    print(f"SQL: {sql2}\n")
+    
+    result2 = common_db.global_parser.parse(sql2)
+    
+    if result2 is None:
+        print("解析失败！")
+    else:
+        print(f"解析成功！")
+        print(f"根节点: {result2.value}")
+        print(f"子节点数: {len(result2.children) if result2.children else 0}")

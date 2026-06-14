@@ -24,12 +24,15 @@ import re  # 添加
 
 # Author: 但芸妍
 # 修改：实验2需要支持 * 通配符，添加 STAR token
+# 修改：添加 INDEX, ON token 支持 CREATE INDEX 语句
+# 修改：添加BETWEEN 支持范围查询语句
 # 新增：添加新的token
 tokens = ('SELECT', 'FROM', 'WHERE', 'AND', 'TCNAME', 'EQX', 'COMMA', 'CONSTANT', 'SPACE', 'STAR',
           'CREATE', 'TABLE', 'INSERT', 'INTO', 'VALUES', 'DELETE', 'UPDATE', 'SET', 'DROP',
-          'LPAREN', 'RPAREN',
+          'LPAREN', 'RPAREN', 'INDEX', 'ON',
           'CHAR', 'VARCHAR', 'INT', 'INTEGER', 'FLOAT', 'REAL',
-          'BIT', 'VARBIT', 'DATE', 'TIME')
+          'BIT', 'VARBIT', 'DATE', 'TIME',
+          'BETWEEN')  
 
 def t_CREATE(t):
     r'create'
@@ -65,6 +68,14 @@ def t_SET(t):
 
 def t_DROP(t):
     r'drop'
+    return t
+
+def t_INDEX(t):
+    r'index'
+    return t
+
+def t_ON(t):
+    r'on'
     return t
 
 def t_LPAREN(t):
@@ -162,9 +173,16 @@ def t_SPACE(t):
     r'\s+'
     pass
 
+def t_BETWEEN(t):
+    r'between'
+    return t
+
 def t_TCNAME(t):
     r'[A-Z_a-z]\w*'
     return t
+
+
+
 
 
 # --------------------------

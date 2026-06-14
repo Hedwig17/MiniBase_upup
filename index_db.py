@@ -8,7 +8,7 @@ index_db.py - B+树索引模块
 
 import struct
 import math
-from storage_db_hd import Storage
+from storage_db import Storage
 from common_db import BLOCK_SIZE
 
 # The 0 block stores the meta information of the tree
@@ -122,51 +122,74 @@ class Index(object):
     #       3. 按键值排序
     #       4. 清空索引文件，逐条插入构建 B+ 树
     #--------------------------------
-    def create_index(self,index_field):
-        print ('create_index begins to execute')
-        #field_value_address=[] # its element is a tuple (field_value,address)
-        # to be inserted here
-        self.data_fh=open(self.tablename+'.dat','rb+')
-        self.data_fh.seek(0)
-        #TODO:此处新修改的Storage类需要额外传入field_list,否则默认为None，不知道此处会不会有影响
-        store=Storage(self.tablename)
-        field_list = store.getFieldList()   # [(name_bytes, type, length), ...]
+    def create_index(self, index_field):
+        print('create_index begins to execute')
+        
+        # 获取数据
+        store = Storage(self.tablename)
+        field_list = store.getFieldList()
         field_idx = None
         for i, (fname_bytes, ftype, flen) in enumerate(field_list):
             fname = fname_bytes.decode('utf-8').strip()
             if fname == index_field:
                 field_idx = i
                 break
+        
         if field_idx is None:
             print(f"错误：表中不存在字段 '{index_field}'")
             return
         
-        #获得所有 (键, 物理地址) 
-        pairs = []   # 每个元素 (key_str, block_id, offset)
+        # 收集键值对，注意：键需要是 10 字节的 bytes
+        pairs = []
         for pos, record in zip(store.record_Position, store.record_list):
             key_raw = record[field_idx]
-            # 将键值统一转为字符串（按你的索引设计，键存储为10字节字符串）
-            key_str = str(key_raw)
-            if len(key_str) > 10:
-                print(f"警告：键 '{key_str}' 超过10字节，将被截断")
-                key_str = key_str[:10]
+            
+            # ========== 关键修复 ==========
+            # key_raw 可能是 bytes 或 str
+            if isinstance(key_raw, bytes):
+                # 直接使用 bytes，不要再 encode
+                key_bytes = key_raw
+            elif isinstance(key_raw, str):
+                key_bytes = key_raw.encode('utf-8')
+            else:
+                key_bytes = str(key_raw).encode('utf-8')
+            
+            # 补齐到 10 字节
+            if len(key_bytes) > 10:
+                key_bytes = key_bytes[:10]
+            elif len(key_bytes) < 10:
+                key_bytes = key_bytes.ljust(10, b' ')
+            
             block_id, offset = pos
-            pairs.append((key_str, block_id, offset))
-
-        #排序（按照键值）
+            pairs.append((key_bytes, block_id, offset))
+            # 调试：打印前几条
+            if len(pairs) <= 5:
+                print(f"  键 {len(pairs)}: {key_bytes}")
+        
         pairs.sort(key=lambda x: x[0])
-
-        # 清空现有索引文件，重新构建
+            
+        # 关闭当前索引文件
         self.f_handle.close()
-        # 删除索引文件
-        os.remove(self.tablename + '.ind')
-        # 重新打开文件
-        self.f_handle = open(self.tablename + '.ind', 'wb+')
-
-        #建树【如何确定b树的参数n（n是每个存储块最多的健值数）推测根据键和指针的大小确定】
-        for key, blk, off in pairs:
-            self.insert_index_entry(key, blk, off)
-
+        
+        # 删除旧索引文件
+        ind_file = self.tablename + '.ind'
+        if os.path.exists(ind_file):
+            os.remove(ind_file)
+        
+        # 重新初始化索引对象的状态
+        self.f_handle = open(ind_file, 'wb+')
+        self.is_new_file = True
+        self.has_root = False
+        self.num_of_levels = 0
+        self.root_node_ptr = 0
+        
+        # 逐个插入
+        for key_bytes, blk, off in pairs:
+            self.insert_index_entry(key_bytes, blk, off)
+        
+        # 确保元数据正确写入
+        self._write_meta()
+        
         print(f"索引构建完成，共插入 {len(pairs)} 条记录")
 
     #-----------------------------
@@ -429,11 +452,11 @@ class Index(object):
         elif len(key_bytes) < 10:
             key_bytes = key_bytes.ljust(10, b' ')
 
-        print(f'insert_index_entry called with field_value={field_value}, block_id={block_id}, offset={offset}')
+        #print(f'insert_index_entry called with field_value={field_value}, block_id={block_id}, offset={offset}')
         print(f'  key_bytes={repr(key_bytes)}')
-        print(f'  self.is_new_file={self.is_new_file}, self.has_root={getattr(self, "has_root", False)}')
+        #print(f'  self.is_new_file={self.is_new_file}, self.has_root={getattr(self, "has_root", False)}')
 
-        if len(key_bytes.strip())>0 and block_id>0 and offset>0:# the following is to insert an index entry into the index file
+        if len(key_bytes.strip()) > 0 and block_id > 0 and offset >= 0:# the following is to insert an index entry into the index file
             if self.is_new_file or not self.has_root:# there is no data in the index file
                 # ========== 情况1：空索引文件，创建第一个叶子结点和元数据块 ==========
                 # to prepare the data in the index node, which is stored in block 1 
@@ -477,7 +500,7 @@ class Index(object):
              # ========== 情况2：索引文件非空，需要定位并插入 ==========   
             else:# there is data in the file
                 # 重新读取元数据块（确保最新）
-                print("  -> entering normal insert branch")
+                #print("  -> entering normal insert branch")
                 self.meta_index_block=ctypes.create_string_buffer(common_db.BLOCK_SIZE)
                 self.f_handle.seek(0)
                 self.meta_index_block=self.f_handle.read(common_db.BLOCK_SIZE)
@@ -576,17 +599,20 @@ class Index(object):
                             self.f_handle.seek(read_pos)
                             self.f_handle.write(current_index_block)
                             self.f_handle.flush()       
-                            print(f"After insert, leaf {next_node_ptr} has {current_num_of_keys} keys:")
+                            #print(f"After insert, leaf {next_node_ptr} has {current_num_of_keys} keys:")
                             keys_in_leaf = []
                             for i in range(current_num_of_keys):
                                 k_bytes, _, _ = struct.unpack_from('!10sii', current_index_block, struct.calcsize('!iii') + i * LEN_OF_LEAF_NODE)
                                 keys_in_leaf.append(k_bytes.decode().strip())
-                            print(f"  keys: {keys_in_leaf[:10]}...")  # 只打印前10个               
+                            #print(f"  keys: {keys_in_leaf[:10]}...")  # 只打印前10个               
                        
                         else:
-                            print ("the leaf node is full, we should split")
-                            new_block_id, up_key=self.split_leaf_node(current_index_block, next_node_ptr, key_bytes, block_id, offset)
-                            self.insert_into_parent(next_node_ptr,path_stack, up_key, new_block_id)
+                            print("the leaf node is full, we should split")
+                            new_block_id, up_key = self.split_leaf_node(current_index_block, next_node_ptr, key_bytes, block_id, offset)
+                            # 确保 up_key 是 bytes
+                            if isinstance(up_key, str):
+                                up_key = up_key.encode('utf-8')
+                            self.insert_into_parent(next_node_ptr, path_stack, up_key, new_block_id)
 
                                                    
                     else:
@@ -689,7 +715,7 @@ class Index(object):
         else:
             # 父结点已满，需要分裂
             # 分裂内部结点，产生新的上浮键和右结点指针
-            new_up_key, new_up_right_ptr = self.split_internal_node(parent_buf, parent_block_id)
+            new_up_right_ptr,new_up_key= self.split_internal_node(parent_buf, parent_block_id)
             # 写回分裂后的两个内部结点（原结点和新结点）
             # （_split_internal_node 内部应负责写盘并返回上浮信息）
             # 然后继续向上一层插入
@@ -817,7 +843,10 @@ class Index(object):
         self.f_handle.flush()
 
         # 返回新块号和上浮的键（供父结点插入使用）
-        return new_block_id, key_list[split]
+        up_key = key_list[split]
+        if isinstance(up_key, str):
+            up_key = up_key.encode('utf-8')
+        return new_block_id, up_key
 
      #-----------------------------
     # 分裂内部结点（参照 PDF 第 115 页）
@@ -834,9 +863,6 @@ class Index(object):
     #       5. 右结点：keys[left_keys+1:], ptrs[left_keys+1:]
     #       6. 写回原块和新块
     #       7. 返回新块号和上浮键
-    # 修改记录
-    #       2024-06-11: 修正 left_keys 计算（从 ceil 改为 //2）
-    #       2024-06-11: 统一使用 LEN_OF_INTERNAL_NODE（14 字节）
     #--------------------------------
     def split_internal_node(self, current_index_block, current_block_id):
         # 获取当前结点中的键数量
@@ -909,6 +935,12 @@ class Index(object):
     #       3. 更新元数据（根块号、树高+1）
     #--------------------------------  
     def create_new_root(self,current_node_id,new_key, new_right_ptr):
+        if isinstance(new_key, str):
+            new_key = new_key.encode('utf-8')
+        if len(new_key) > 10:
+            new_key = new_key[:10]
+        elif len(new_key) < 10:
+            new_key = new_key.ljust(10, b' ')
         new_buf = ctypes.create_string_buffer(BLOCK_SIZE)
         new_block_id = self.get_next_block_id()
         struct.pack_into('!iii', new_buf, 0,
@@ -1291,14 +1323,13 @@ class Index(object):
     #       找到第一个大于 current_value 的键，返回其左指针
     #       若所有键都 ≤ current_value，返回最后一个指针
     #--------------------------------
-    def get_next_block_ptr(self,current_value,index_key_list,index_ptr_list):
-        # current_value 和 index_key_list 中的元素都是 bytes
-        if len(index_key_list)>0:
+    def get_next_block_ptr(self, current_value, index_key_list, index_ptr_list):
+        if len(index_key_list) > 0:
             for i, key in enumerate(index_key_list):
-                if current_value < key:        # 严格小于，走左子树
+                if current_value < key:
                     return index_ptr_list[i], i
             # 大于等于所有键，走最后一个指针
-            return index_ptr_list[-1], len(index_key_list) - 1
+            return index_ptr_list[-1], len(index_key_list)  #
 
     
      #-----------------------------
@@ -1312,32 +1343,26 @@ class Index(object):
     #       None
     # 说明：允许重复键，新键插入在相同键之后
     #--------------------------------
-    def insert_key_value_into_leaf_list(self,insert_key,ptr_tuple,key_list,ptr_list):
-        print(f"insert_key_value_into_leaf_list: insert_key={insert_key!r}")
-        print(f"  existing keys: [repr(k) for k in key_list]")
-        if len(key_list)>0:
-            pos=-1
+    def insert_key_value_into_leaf_list(self, insert_key, ptr_tuple, key_list, ptr_list):
+        if len(key_list) > 0:
+            pos = -1
             for i in range(len(key_list)):
-                current_key=key_list[i]
-                if current_key==insert_key: # 若键已存在，也插入在相同键之后（允许重复）
-                    pos=i
+                current_key = key_list[i]
+                if current_key == insert_key:
+                    pos = i
                     break
-                elif current_key>insert_key:
-                    pos=i
+                elif current_key > insert_key:
+                    pos = i
                     break
 
-            if pos==-1:                      # 若所有键都小于 insert_key，则插在末尾
-                pos=len(key_list)-1
+            if pos == -1:  # 所有键都小于 insert_key，插在末尾
+                pos = len(key_list)  # ← 修复：从 len-1 改为 len
 
-              # 在 pos 位置插入新元素
-            key_list.insert(pos,insert_key)           
-            ptr_list.insert(pos,ptr_tuple)                 
-                           
-        
-        elif len(key_list)==0:              # 空列表直接添加
+            key_list.insert(pos, insert_key)
+            ptr_list.insert(pos, ptr_tuple)
+        else:
             key_list.append(insert_key)
             ptr_list.append(ptr_tuple)
-
     
     #-----------------------------
     # 调试用：打印所有叶子结点的键

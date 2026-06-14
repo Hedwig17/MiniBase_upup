@@ -24,7 +24,7 @@ import query_plan_db  # construct the query plan and execute it
 PROMPT_STR = 'Input your choice  \n1:add a new table structure and data \n2:delete a table structure and data\
 \n3:view a table structure and data \n4:delete all tables and data \n5:select from where clause\
 \n6:delete a row according to field keyword \n7:update a row according to field keyword\
-\n8:DDL(CREATE TABLE) \n9:DML(INSERT INTO) \n10:DML(DELETE FROM) \n11:DML(UPDATE SET) \n12:DDL(DROP TABLE) \n. to quit):\n'
+\n8:DDL(CREATE TABLE) \n9:DML(INSERT INTO) \n10:DML(DELETE FROM) \n11:DML(UPDATE SET) \n12:DDL(DROP TABLE) \n13:DDL(CREATE INDEX) \n14:范围查询 \n. to quit):\n'
 
 
 def _read_non_empty_text(prompt_text):
@@ -406,6 +406,45 @@ def main():
                     import traceback
                     traceback.print_exc()
                     print('删除表执行错误:', str(e))
+            print('#----------------------------------------------------#')
+            choice = input(PROMPT_STR)
+
+        # Author: 郑许博雅
+        elif choice == '13':  # DDL: CREATE INDEX
+            print('#        DDL -- CREATE INDEX                        #')
+            sql_str = input('please enter the CREATE INDEX statement:')
+            ok, root, err = _run_sql_parser(sql_str)
+            if not ok:
+                print(err)
+            elif root.value != 'CreateIdxStmt':
+                print('选项 13 仅支持 CREATE INDEX')
+            else:
+                try:
+                    query_plan_db.execute_create_index(schemaObj)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print('创建索引执行错误:', str(e))
+            print('#----------------------------------------------------#')
+            choice = input(PROMPT_STR)
+            
+        
+        # Author: 郑许博雅
+        elif choice == '14':  #  DQL:RANGE SEARCH
+            print('#        DQL -- RANG14E SEARCH                        #')
+            sql_str = input('please enter the RANGE SEARCH statement:')
+            ok, root, err = _run_sql_parser(sql_str)
+            if not ok:
+                print(err)
+            elif root.value != 'RangeSearchStmt':
+                print('选项 14 仅支持 RANGE SEARCH')
+            else:
+                try:
+                    query_plan_db.execute_range_search(schemaObj)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print('范围查询执行错误:', str(e))
             print('#----------------------------------------------------#')
             choice = input(PROMPT_STR)
 
