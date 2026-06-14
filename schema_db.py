@@ -14,11 +14,17 @@ import os
 import struct
 import head_db # it is main memory structure for the table schema
 
+# 修改原因：类型系统从 4 种扩展到 9 种，支持基本 SQL 数据类型
 FIELD_TYPE_NAME_MAP = {
-    0: 'str',
-    1: 'varstr',
-    2: 'int',
-    3: 'bool'
+    0: 'char',        # 定长字符串
+    1: 'varchar',     # 变长字符串
+    2: 'int',         # 整数
+    3: 'bool',        # 布尔
+    4: 'float',       # 浮点数
+    5: 'bit',         # 定长位串
+    6: 'bit varying', # 变长位串
+    7: 'date',        # 日期 YYYY-MM-DD
+    8: 'time'         # 时间 HH:MM:SS
 }
 
 #the following is metaHead structure,which is 12 bytes
@@ -450,11 +456,12 @@ class Schema(object):
                 (fieldName,fieldType,fieldLength)=fieldList[i]
                 # 先处理字段名
 
-                if len(fieldName.strip())<10:
-                    if isinstance(fieldName,str): #判断 fieldName 是不是字符串类型
-                        fieldName=fieldName.encode('utf-8') #转bytes
-                    # 补空格到10字节⚠️用错常量
-                    filledFieldName = (' ' * (MAX_FIELD_NAME_LEN - len(fieldName.strip()))).encode('utf-8') + fieldName
+                if len(fieldName.strip()) < MAX_FIELD_NAME_LEN:
+                    if isinstance(fieldName, str):
+                        fieldName = fieldName.encode('utf-8')
+                    # 先 strip 去空格再填，避免 Storage 已填充的定长字段名被重复填充
+                    fieldName = fieldName.strip()
+                    filledFieldName = (' ' * (MAX_FIELD_NAME_LEN - len(fieldName))).encode('utf-8') + fieldName
                 
                 if isinstance(filledFieldName,str):
                     filledFieldName=filledFieldName.encode('utf-8')
@@ -561,3 +568,58 @@ class Schema(object):
         返回值：iterator，每次迭代返回一个 bytes 类型的表名
         """
         return map(lambda x: x[0], self.headObj.tableNames)
+    
+
+    # --------------------------------
+    # Author: 郑许博雅
+    # 新增：创建索引
+    # ---------------------------------
+
+    def create_index(self, table_name_bytes, index_name=None, field_name=None):
+        """在指定表上创建索引"""
+        from index_db import Index
+        
+        # 检查表是否存在
+        if not self.find_table(table_name_bytes):
+            print(f"表 {table_name_bytes.decode('utf-8')} 不存在")
+            return False
+        
+        # 获取表的字段列表
+        field_list = self.headObj.tableFields.get(table_name_bytes, [])
+        if not field_list:
+            print(f"表 {table_name_bytes.decode('utf-8')} 没有字段定义")
+            return False
+        
+        # 如果没有指定字段名，使用第一个字段（或从语法树中获取）
+        # 这里简化处理，实际应从语法树中解析字段名
+        if field_name is None:
+            # 从语法树中获取字段名
+            import common_db
+            tree = common_db.global_syn_tree
+            if tree and len(tree.children) > 1:
+                field_name_node = tree.children[1]
+                if isinstance(field_name_node, bytes):
+                    field_name = field_name_node.decode('utf-8')
+                else:
+                    field_name = str(field_name_node)
+                field_name = field_name.strip()
+        
+        if field_name is None:
+            print("未指定索引字段")
+            return False
+        
+        # 检查字段是否存在
+        field_names = [f[0].decode('utf-8').strip() if isinstance(f[0], bytes) else str(f[0]).strip() for f in field_list]
+        if field_name not in field_names:
+            print(f"字段 '{field_name}' 不存在")
+            return False
+        
+        # 创建索引对象并批量建索引
+        try:
+            idx = Index(table_name_bytes.decode('utf-8'))
+            idx.create_index(field_name)
+            print(f"索引创建成功：表 {table_name_bytes.decode('utf-8')} 的 {field_name} 字段")
+            return True
+        except Exception as e:
+            print(f"创建索引失败: {e}")
+            return False

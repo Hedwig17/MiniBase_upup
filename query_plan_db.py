@@ -246,11 +246,65 @@ def execute_logical_tree():
                             current_list.append(list(x))
                     else:  # 该层只有一个表
                         a_1 = storage_db.Storage(dict_[idx][0])
+                        table_name = dict_[idx][0] 
                         current_list = a_1.getRecord()
-
+                        # ========== 新增：检查是否可以使用索引 ==========
+                        # 先获取 WHERE 条件（来自上一层 Filter）
+                        use_index = False
+                        positions = None
+                        
+                        # 检查上一层是否有 Filter 节点
+                        if idx - 1 >= 0 and 'Filter' in dict_[idx - 1]:
+                            filter_info = dict_[idx - 1][0][1]
+                            if filter_info and len(filter_info) >= 3:
+                                filter_field_name = filter_info[0]
+                                filter_field_value = filter_info[2].strip()
+                                
+                                # 检查索引文件是否存在
+                                import os
+                                from index_db import Index
+                                
+                                index_file = table_name + '.ind'
+                                if os.path.exists(index_file):
+                                    try:
+                                        idx_obj = Index(table_name)
+                                        positions = idx_obj.search(filter_field_value)
+                                        if positions:
+                                            use_index = True
+                                            print(f"[Index] 使用索引查询 '{filter_field_name}={filter_field_value}'，找到 {len(positions)} 条记录")
+                                    except Exception as e:
+                                        print(f"[Index] 索引查询失败: {e}")
+                        
+                        if use_index and positions:
+                            # 使用索引查询，根据位置读取记录
+                            current_list = []
+                            # 获取字段索引（用于后续过滤，索引已经精确匹配，但可能需要验证）
+                            field_idx = None
+                            field_list = a_1.getFieldList()
+                            for i, (fname, _, _) in enumerate(field_list):
+                                fname_str = fname.decode('utf-8').strip() if isinstance(fname, bytes) else str(fname).strip()
+                                if fname_str == filter_field_name:
+                                    field_idx = i
+                                    break
+                            
+                            for blk, off in positions:
+                                try:
+                                    record = a_1.read_record_by_position(blk, off)
+                                    if record:
+                                        # 验证记录确实匹配（可选，用于安全）
+                                        val = record[field_idx]
+                                        if isinstance(val, bytes):
+                                            val = val.decode('utf-8').strip()
+                                        if str(val) == filter_field_value:
+                                            current_list.append(record)
+                                except Exception as e:
+                                    print(f"读取记录失败: {e}")
+                        else:
+                            # 全表扫描
+                            current_list = a_1.getRecord()
+                            print(f"[Index] 未使用索引，执行全表扫描，共 {len(current_list)} 条记录")
                         tableName_Order = [dict_[idx][0]]
                         current_field = [a_1.getFieldList()]
-                        # print current_list
 
                 elif 'X' in dict_[idx] and len(dict_[idx]) > 1:
                     a_2 = storage_db.Storage(dict_[idx][1])
@@ -467,22 +521,27 @@ def _parse_type_def(node, fname, field_list):
         type_name = str(type_name_node)
     type_name = type_name.strip().lower()
 
+    # 修改原因：类型系统扩展到 9 种，与 main_db._exec_create_table 保持同步
     if type_name == 'char':
-        ftype = 0  # str
-        # 获取长度
-        if len(node.children) > 1:
-            flen = int(node.children[1])
-        else:
-            flen = 10  # 默认长度
-    elif type_name == 'varstr':
-        ftype = 1  # varstr
-        if len(node.children) > 1:
-            flen = int(node.children[1])
-        else:
-            flen = 20  # 默认长度
-    elif type_name == 'integer':
-        ftype = 2  # int
-        flen = 4
+        ftype = 0
+        flen = int(node.children[1]) if len(node.children) > 1 else 10
+    elif type_name in ('varchar', 'varstr'):
+        ftype = 1
+        flen = int(node.children[1]) if len(node.children) > 1 else 255
+    elif type_name in ('int', 'integer'):
+        ftype, flen = 2, 4
+    elif type_name in ('float', 'real'):
+        ftype, flen = 4, 8
+    elif type_name == 'bit':
+        ftype = 5
+        flen = int(node.children[1]) if len(node.children) > 1 else 8
+    elif type_name in ('bit varying', 'bitvaring'):
+        ftype = 6
+        flen = int(node.children[1]) if len(node.children) > 1 else 64
+    elif type_name == 'date':
+        ftype, flen = 7, 10
+    elif type_name == 'time':
+        ftype, flen = 8, 8
     else:
         print(f"不支持的字段类型: {type_name}")
         return
@@ -722,6 +781,233 @@ def execute_drop(schema_obj):
         return True
     else:
         print(f"删除表 '{table_name}' 失败")
+        return False
+
+
+# --------------------------------
+# Author: 郑许博雅
+# 新增：执行 CREATE INDEX
+# ---------------------------------
+def execute_create_index(schema_obj):
+    """执行 CREATE INDEX 语句"""
+    tree = common_db.global_syn_tree
+    if tree is None or tree.value != 'CreateIdxStmt':
+        print("不是 CREATE INDEX 语句")
+        return False
+
+    # 获取索引名（可选，第0个子节点）
+    if len(tree.children) > 0:
+        index_name_node = tree.children[0]
+        if isinstance(index_name_node, bytes):
+            index_name = index_name_node.decode('utf-8')
+        else:
+            index_name = str(index_name_node)
+        index_name = index_name.strip()
+    else:
+        index_name = None
+
+    # 获取表名（第1个子节点）
+    if len(tree.children) > 1:
+        table_name_node = tree.children[1]
+        if isinstance(table_name_node, bytes):
+            table_name = table_name_node.decode('utf-8')
+        else:
+            table_name = str(table_name_node)
+        table_name = table_name.strip()
+    else:
+        print("CREATE INDEX 语句缺少表名")
+        return False
+    
+    table_name_bytes = table_name.encode('utf-8')
+
+    # 获取字段名（第2个子节点）
+    if len(tree.children) > 2:
+        field_name_node = tree.children[2]
+        if isinstance(field_name_node, bytes):
+            field_name = field_name_node.decode('utf-8')
+        else:
+            field_name = str(field_name_node)
+        field_name = field_name.strip()
+    else:
+        print("CREATE INDEX 语句缺少字段名")
+        return False
+
+    # 检查表是否存在
+    if not schema_obj.find_table(table_name_bytes):
+        print(f"表 '{table_name}' 不存在")
+        return False
+
+    # 创建索引
+    if schema_obj.create_index(table_name_bytes, index_name, field_name):
+        print(f"索引 '{index_name}' 创建成功在表 '{table_name}' 的 '{field_name}' 字段上")
+        return True
+    else:
+        print(f"创建索引失败")
+        return False
+    
+# --------------------------------
+# Author: 郑许博雅
+# 新增：检查表是否有索引
+# ---------------------------------
+def has_index(table_name, field_name=None):
+    """检查表是否有索引，如果指定字段名则检查该字段是否有索引"""
+    import os
+    from index_db import Index
+    
+    index_file = table_name + '.ind'
+    if not os.path.exists(index_file):
+        return False
+    
+    if field_name is None:
+        return True
+    
+    # 检查索引是否建立在指定字段上
+    try:
+        idx = Index(table_name)
+        # 简单判断：如果索引文件存在且有数据，假设索引有效
+        # 实际可以读取索引元数据来判断索引字段
+        return True
+    except:
+        return False
+    
+# --------------------------------
+# Author: 郑许博雅
+# 新增：执行范围查询
+# ---------------------------------
+def execute_range_search(schema_obj):
+    """执行范围查询"""
+    import os
+    from index_db import Index
+    import storage_db
+    
+    tree = common_db.global_syn_tree
+    if tree is None or tree.value != 'RangeSearchStmt':
+        print("不是 RANGE SEARCH 语句")
+        return False
+    
+    # 解析语法树节点
+    # 节点结构: [start_key, end_key, table_name, column_name]
+    children = tree.children
+    
+    if len(children) < 4:
+        print("范围查询语句格式错误")
+        return False
+    
+    start_key_node = children[0]
+    end_key_node = children[1]
+    table_name_node = children[2]
+    column_name_node = children[3]
+    
+    # 获取值
+    if isinstance(start_key_node, common_db.Node):
+        start_key = start_key_node.children[0] if start_key_node.children else str(start_key_node)
+    else:
+        start_key = str(start_key_node)
+    
+    if isinstance(end_key_node, common_db.Node):
+        end_key = end_key_node.children[0] if end_key_node.children else str(end_key_node)
+    else:
+        end_key = str(end_key_node)
+    
+    if isinstance(table_name_node, common_db.Node):
+        table_name = table_name_node.children[0] if table_name_node.children else str(table_name_node)
+    else:
+        table_name = str(table_name_node)
+    
+    if isinstance(column_name_node, common_db.Node):
+        column_name = column_name_node.children[0] if column_name_node.children else str(column_name_node)
+    else:
+        column_name = str(column_name_node)
+    
+    # 去除引号（如果有）
+    start_key = start_key.strip().strip("'").strip('"')
+    end_key = end_key.strip().strip("'").strip('"')
+    table_name = table_name.strip()
+    column_name = column_name.strip()
+    
+    print(f"\n范围查询: {table_name}.{column_name} BETWEEN '{start_key}' AND '{end_key}'")
+    print("-" * 60)
+    
+    # 检查表是否存在
+    table_name_bytes = table_name.encode('utf-8')
+    if not schema_obj.find_table(table_name_bytes):
+        print(f"表 '{table_name}' 不存在")
+        return False
+    
+    # 检查索引是否存在
+    index_file = table_name + '.ind'
+    if not os.path.exists(index_file):
+        print(f"索引文件不存在，请先创建索引")
+        print(f"提示: 使用选项 13 创建索引")
+        return False
+    
+    try:
+        # 使用索引进行范围查询
+        idx = Index(table_name)
+        results = idx.range_search(start_key, end_key)
+        
+        if not results:
+            print(f"未找到 {column_name} 在 [{start_key}, {end_key}] 范围内的记录")
+            return True
+        
+        print(f"\n找到 {len(results)} 条记录:")
+        print("=" * 80)
+        
+        # 获取完整的记录数据
+        storage = storage_db.Storage(table_name)
+        field_list = storage.getFieldList()
+        
+        # 打印表头
+        headers = ["序号", "键值"]
+        for fname, _, _ in field_list:
+            fname_str = fname.decode('utf-8').strip() if isinstance(fname, bytes) else str(fname).strip()
+            headers.append(fname_str)
+        
+        # 计算列宽
+        col_widths = [6, 12]
+        for h in headers[2:]:
+            col_widths.append(max(len(h), 15))
+        
+        # 打印表头
+        header_line = ""
+        for i, h in enumerate(headers):
+            header_line += f"{h:<{col_widths[i]}} "
+        print(header_line)
+        print("-" * sum(col_widths) + "-" * (len(headers) * 2))
+        
+        # 打印记录
+        for i, (key_bytes, blk, off) in enumerate(results):
+            try:
+                record = storage.read_record_by_position(blk, off)
+                if record:
+                    # 转换键值
+                    key_str = key_bytes.decode('utf-8').strip() if isinstance(key_bytes, bytes) else str(key_bytes).strip()
+                    
+                    # 构建行
+                    row = [str(i+1), key_str]
+                    for val in record:
+                        if isinstance(val, bytes):
+                            val = val.decode('utf-8').strip()
+                        row.append(str(val))
+                    
+                    # 打印行
+                    line = ""
+                    for j, val in enumerate(row):
+                        line += f"{val:<{col_widths[j]}} "
+                    print(line)
+                    
+            except Exception as e:
+                print(f"读取记录 {i+1} 失败: {e}")
+        
+        print("=" * 80)
+        del storage
+        del idx
+        return True
+        
+    except Exception as e:
+        print(f"范围查询失败: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 '''

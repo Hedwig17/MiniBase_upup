@@ -24,7 +24,7 @@ import query_plan_db  # construct the query plan and execute it
 PROMPT_STR = 'Input your choice  \n1:add a new table structure and data \n2:delete a table structure and data\
 \n3:view a table structure and data \n4:delete all tables and data \n5:select from where clause\
 \n6:delete a row according to field keyword \n7:update a row according to field keyword\
-\n8:DDL(CREATE TABLE) \n9:DML(INSERT INTO) \n10:DML(DELETE FROM) \n11:DML(UPDATE SET) \n12:DDL(DROP TABLE) \n. to quit):\n'
+\n8:DDL(CREATE TABLE) \n9:DML(INSERT INTO) \n10:DML(DELETE FROM) \n11:DML(UPDATE SET) \n12:DDL(DROP TABLE) \n13:DDL(CREATE INDEX) \n14:范围查询 \n. to quit):\n'
 
 
 def _read_non_empty_text(prompt_text):
@@ -118,87 +118,7 @@ def _run_sql_parser(sql_str):
     return True, root, ''
 
 
-def _exec_create_table(root, schemaObj):
-    """
-    功能：执行 CREATE TABLE 语句——建表并注册到 schema，已存在则拒绝
-    输入参数：root: Node(CreateStmt)，语法树；schemaObj: Schema 实例
-    返回值：tuple[bool, str]
-    """
-    table_name = root.children[0]
-    if isinstance(table_name, bytes):
-        table_name = table_name.decode('utf-8')
-    table_name_str = table_name.strip()
-    table_name_bytes = table_name_str.encode('utf-8')
 
-    if schemaObj.find_table(table_name_bytes):
-        return False, '表 {0} 已存在，请先删除再创建'.format(table_name_str)
-
-    field_list_node = root.children[1]
-    insert_field_list = []
-    for field_def in field_list_node.children:
-        fname = field_def.children[0]
-        if isinstance(fname, bytes):
-            fname = fname.decode('utf-8')
-        fname = fname.strip()
-
-        type_node = field_def.children[1]
-        type_name = type_node.children[0]
-        if isinstance(type_name, bytes):
-            type_name = type_name.decode('utf-8')
-        type_name = type_name.strip().lower()
-
-        if type_name == 'char':
-            ftype = 0
-            flen_str = type_node.children[1] if len(type_node.children) > 1 else '10'
-            if isinstance(flen_str, bytes):
-                flen_str = flen_str.decode('utf-8')
-            flen = int(flen_str.strip().strip("'"))
-        elif type_name == 'integer':
-            ftype = 2
-            flen = 4
-        else:
-            return False, '不支持的字段类型: ' + type_name
-
-        insert_field_list.append((fname, ftype, flen))
-
-    data_obj = storage_db.Storage(table_name_bytes, field_list=insert_field_list)
-    schemaObj.appendTable(table_name_bytes, insert_field_list)
-    del data_obj
-    return True, '表 {0} 创建成功，共 {1} 个字段'.format(table_name_str, len(insert_field_list))
-
-
-def _exec_insert_into(root, schemaObj):
-    """
-    功能：执行 INSERT INTO 语句——向已存在表插入一行数据
-    输入参数：root: Node(InsertStmt)，语法树；schemaObj: Schema 实例
-    返回值：tuple[bool, str]
-    """
-    table_name = root.children[0]
-    if isinstance(table_name, bytes):
-        table_name = table_name.decode('utf-8')
-    table_name_str = table_name.strip()
-    table_name_bytes = table_name_str.encode('utf-8')
-
-    if not schemaObj.find_table(table_name_bytes):
-        return False, '表 {0} 不存在，请先创建'.format(table_name_str)
-
-    value_list_node = root.children[1]
-    insert_values = []
-    for val in value_list_node.children:
-        if isinstance(val, bytes):
-            val = val.decode('utf-8')
-        val = val.strip()
-        if val.startswith("'") and val.endswith("'"):
-            val = val[1:-1]
-        insert_values.append(val)
-
-    data_obj = storage_db.Storage(table_name_bytes)
-    if data_obj.insert_record(insert_values):
-        del data_obj
-        return True, '插入成功: ' + str(insert_values)
-    else:
-        del data_obj
-        return False, '插入失败，请检查值类型和长度是否与字段定义匹配'
 
 
 # --------------------------
@@ -486,6 +406,45 @@ def main():
                     import traceback
                     traceback.print_exc()
                     print('删除表执行错误:', str(e))
+            print('#----------------------------------------------------#')
+            choice = input(PROMPT_STR)
+
+        # Author: 郑许博雅
+        elif choice == '13':  # DDL: CREATE INDEX
+            print('#        DDL -- CREATE INDEX                        #')
+            sql_str = input('please enter the CREATE INDEX statement:')
+            ok, root, err = _run_sql_parser(sql_str)
+            if not ok:
+                print(err)
+            elif root.value != 'CreateIdxStmt':
+                print('选项 13 仅支持 CREATE INDEX')
+            else:
+                try:
+                    query_plan_db.execute_create_index(schemaObj)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print('创建索引执行错误:', str(e))
+            print('#----------------------------------------------------#')
+            choice = input(PROMPT_STR)
+            
+        
+        # Author: 郑许博雅
+        elif choice == '14':  #  DQL:RANGE SEARCH
+            print('#        DQL -- RANG14E SEARCH                        #')
+            sql_str = input('please enter the RANGE SEARCH statement:')
+            ok, root, err = _run_sql_parser(sql_str)
+            if not ok:
+                print(err)
+            elif root.value != 'RangeSearchStmt':
+                print('选项 14 仅支持 RANGE SEARCH')
+            else:
+                try:
+                    query_plan_db.execute_range_search(schemaObj)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print('范围查询执行错误:', str(e))
             print('#----------------------------------------------------#')
             choice = input(PROMPT_STR)
 
