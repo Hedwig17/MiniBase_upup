@@ -9,20 +9,37 @@ COMMIT_FILE = "commit.trx"
 BEFORE_FILE = "before.img"
 AFTER_FILE = "after.img"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# REDO_FILE = os.path.join(BASE_DIR, "redo.done")
 SYSTEM_FLAG = "system.flag"
 
 # 事务号
 def generate_txn_id():
+    """
+    功能描述：生成唯一事务编号，作为事务在日志文件和事务表中的标识
+    输入参数：无
+    返回值：str，基于当前时间戳生成的事务编号
+    """
     return str(int(time.time() * 1000))
 
 # 开始事务
 def begin_transaction(txn_id):
+    """
+    功能描述：开启事务，将事务编号写入活动事务表 ATL（active.trx）
+    输入参数：txn_id: str，事务编号
+    返回值：无
+    """
     with open(ACTIVE_FILE, "a", encoding="utf8") as f:
         f.write(txn_id + "\n")
 
 # 写前像
 def write_before_image(txn_id, operation_type, table_name, old_record=None):
+    """
+    功能描述：记录事务执行前的数据镜像（Before Image），用于事务恢复时参考原始状态
+    输入参数：txn_id: str，事务编号；
+             operation_type: str，操作类型（INSERT 或 UPDATE）；
+             table_name: str/bytes，表名；
+             old_record: list，可选参数，修改前记录内容
+    返回值：无
+    """
     # 去掉 b''
     if isinstance(table_name, bytes):
         table_name = table_name.decode("utf8")
@@ -51,6 +68,14 @@ def write_before_image(txn_id, operation_type, table_name, old_record=None):
 
 # 写后像
 def write_after_image(txn_id, operation_type, table_name, record):
+    """
+    功能描述：记录事务执行后的数据镜像（After Image），并按照 WAL 规则强制写入磁盘
+    输入参数：txn_id: str，事务编号；
+             operation_type: str，操作类型（INSERT 或 UPDATE）；
+             table_name: str/bytes，表名；
+             record: list，事务执行后的记录内容
+    返回值：无
+    """
     # 去掉 b''
     if isinstance(table_name, bytes):
         table_name = table_name.decode("utf8")
@@ -76,16 +101,23 @@ def write_after_image(txn_id, operation_type, table_name, record):
 
 # 提交事务
 def commit_transaction(txn_id):
+    """
+    功能描述：提交事务，将事务编号写入提交事务表 CTL（commit.trx），表示事务已成功提交
+    输入参数：txn_id: str，事务编号
+    返回值：无
+    """
     with open(COMMIT_FILE,"a",encoding="utf8") as f:
         f.write(txn_id + "\n")
         f.flush()
         os.fsync(f.fileno())
-    # 提交成功后从活动事务表删除
-    remove_active_transaction(txn_id)
 
 # 从活动事务表中删除已提交事务
 def remove_active_transaction(txn_id):
-
+    """
+    功能描述：从活动事务表 ATL（active.trx）中删除指定事务编号，表示事务生命周期结束
+    输入参数：txn_id: str，事务编号
+    返回值：无
+    """
     if not os.path.exists(ACTIVE_FILE):
         return
 
@@ -99,7 +131,11 @@ def remove_active_transaction(txn_id):
 
 # 事务恢复
 def recover():
-
+    """
+    功能描述：系统启动时执行故障恢复。首先读取 ATL（活动事务表） 和 CTL（提交事务表），判断事务处于未提交、已提交未完成或已完成状态；随后扫描 After Image 日志，根据事务状态决定是否执行 REDO 操作，最终将数据库恢复到所有已提交事务完成后的正确状态。
+    输入参数：无
+    返回值：无
+    """
     committed_txns = set()
     active_txns = set()
 
@@ -160,44 +196,41 @@ def recover():
             recovered = False
 
             # =====================================================
-            # 事务状态分类（关键新增）
+            # 事务状态分类
             # =====================================================
             in_ctl = txn_id in committed_txns
             in_atl = txn_id in active_txns
-
-            if in_ctl:
-                # 已提交事务 → 必须redo
-                txn_state = "COMMIT"
-
-            elif in_atl:
-                # 崩溃时仍在active → 未提交事务
-                txn_state = "ABORT"
-
+            # ATL + CTL 状态判断
+            if in_atl and not in_ctl:
+                txn_state = "ACTIVE"
+            elif in_atl and in_ctl:
+                txn_state = "COMMIT_NOT_FINISH"
+            elif (not in_atl) and in_ctl:
+                txn_state = "FINISHED"
             else:
-                # 不在任何表 → 无效事务
                 txn_state = "IGNORE"
 
             # =========================
-            # 决策逻辑（关键）
+            # 决策逻辑
             # =========================
-            if txn_state == "COMMIT":
-                # 已提交 → redo
-                pass
-
-            elif txn_state == "ABORT" and in_atl:
-                # 崩溃中断事务（必须显式说明）
-                print("Skip uncommitted txn:", txn_id)
+            if txn_state == "ACTIVE":
+                print("Abort txn:", txn_id)
+                remove_active_transaction(txn_id)
                 continue
-
+            elif txn_state == "COMMIT_NOT_FINISH":
+                # 已提交但未完成
+                pass
+            elif txn_state == "FINISHED":
+                # 已完成事务
+                continue
             else:
-                # unknown事务（可能crash中途丢失）
                 continue
 
             # =====================================================
             # INSERT REDO
             # =====================================================
             if operation_type == "INSERT":
-
+                # 记录主键是否已经存在
                 target_idx = None
                 identical = False
 
@@ -214,11 +247,18 @@ def recover():
                         break
 
                 if not identical:
-
+                    # 主键存在但内容不同
                     if target_idx is not None:
                         dataObj.record_list[target_idx] = tuple(record)
+                        dataObj._rebuild_storage_records(
+                            dataObj.record_list
+                        )
+                    # 主键不存在
                     else:
-                        dataObj.insert_record(record, is_recovery=True)
+                        dataObj.insert_record(
+                            record,
+                            is_recovery=True
+                        )
 
                     recovered = True
 
@@ -228,7 +268,7 @@ def recover():
             elif operation_type == "UPDATE":
 
                 target_idx = None
-
+                # 根据主键查找目标记录
                 for i, r in enumerate(dataObj.record_list):
 
                     cur_pk = r[0]
@@ -238,21 +278,34 @@ def recover():
                     if str(cur_pk).strip() == primary_key:
                         target_idx = i
                         break
-
+                # 找到对应记录
                 if target_idx is not None:
-
+                    # 当前数据库内容与日志后像不一致
                     if list(dataObj.record_list[target_idx]) != record:
-
+                        # 使用后像覆盖当前记录
                         dataObj.record_list[target_idx] = tuple(record)
-
+                        # 重建数据文件并落盘
                         if hasattr(dataObj, "_rebuild_storage_records"):
-                            dataObj._rebuild_storage_records(dataObj.record_list)
+                            dataObj._rebuild_storage_records(
+                                dataObj.record_list
+                            )
 
                         recovered = True
+                # 记录不存在，数据库可能在崩溃时丢失该记录
+                else:
+                    # 根据日志后像重新插入记录
+                    dataObj.insert_record(
+                        record,
+                        is_recovery=True
+                    )
+
+                    recovered = True
 
             del dataObj
 
             if recovered:
                 print("Redo LSN:", lsn, "Txn:", txn_id)
+                # 恢复完成后删除ATL
+                remove_active_transaction(txn_id)
 
     print("恢复完成")

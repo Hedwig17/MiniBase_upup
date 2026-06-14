@@ -547,9 +547,10 @@ class Storage(object):
             write_before_image(txn_id, "INSERT", self.table_name)
 
             write_after_image(txn_id, "INSERT", self.table_name, tmpRecord)
-
+            # 模拟崩溃，1已完成3未完成
+            # os._exit(0)
             commit_transaction(txn_id)
-            # 模拟提交后、写入数据库前崩溃
+            # 模拟崩溃，3已完成5未完成
             # os._exit(0)
 
         # Step5: Write new record into file xxx.dat
@@ -585,7 +586,11 @@ class Storage(object):
         struct.pack_into('!' + str(record_content_len) + 's', self.buf, record_head_len, inputstr.encode('utf-8'))
         self.f_handle.write(self.buf.raw)
         self.f_handle.flush()
-
+        # 【M】数据库写成功后删除ATL
+        if not is_recovery:
+            remove_active_transaction(txn_id)
+        # 模拟崩溃，5已完成
+        # os._exit(0)
         return True
 
     # ------------------------------
@@ -694,7 +699,8 @@ class Storage(object):
                 # 【M】写后像
                 if not is_recovery:
                     write_after_image(txn_id, "UPDATE", self.table_name, current_record)
-
+                    # 模拟崩溃，1已完成3未完成
+                    # os._exit(0)
                 updated_count += 1
             updated_records.append(tuple(current_record))
 
@@ -708,15 +714,15 @@ class Storage(object):
         if not is_recovery:
             print("UPDATE提交事务:", txn_id)
             commit_transaction(txn_id)
-            # 模拟崩溃点：CTL已提交，但DB还没写完
-            os._exit(0)
+            # 模拟崩溃，3已完成5未完成
+            # os._exit(0)
             # 提交后写入db
             if not self._rebuild_storage_records(updated_records):
                 return False, 'failed to rebuild the data file after update.'
-        
-        if not is_recovery:
+            # 【M】DB写成功后删除ATL
             remove_active_transaction(txn_id)
-
+        # 模拟崩溃，5已完成
+        # os._exit(0)
         return True, updated_count
 
     # --------------------------------
