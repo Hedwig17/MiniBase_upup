@@ -51,7 +51,7 @@ TABLE_NAME_HEAD_SIZE=MAX_TABLE_NUM*TABLE_NAME_ENTRY_LEN     # the SECOND part in
 # the following is for body, which stores the field information of each table and the field information is as follows
 """
 field_name   # it is a string
-field_type   # it is an integer, 0->str,1->varstr,2->int,3->bool
+field_type   # 类型码: 0=char 1=varchar 2=int 3=bool 4=float 5=bit 6=bit varying 7=date 8=time
 field_length # it is an integer
 """
 MAX_FIELD_NAME_LEN=10                                       # the maximum length of field name
@@ -72,6 +72,9 @@ BODY_BEGIN_INDEX=META_HEAD_SIZE+TABLE_NAME_HEAD_SIZE            # Intitially, wh
 # 返回值：bytes，补齐空格后的 10 字节表名  
 # -------------------------------
 def fillTableName(tableName):
+    # 先移除 null 字节，防止未初始化的 \\x00 污染补位计算
+    if isinstance(tableName, bytes):
+        tableName = tableName.replace(b'\x00', b'')
     tableName = tableName.strip()
     if isinstance(tableName, str):
         tableName = tableName.encode('utf-8')
@@ -81,14 +84,30 @@ def fillTableName(tableName):
     return tableName
 
 
+def _clean_name(raw_bytes):
+    """
+    功能描述：清洗定长存储的 bytes 名称，移除 null 字节（\\x00）和补位空格后再解码
+             Python 的 bytes.strip() 不把 \\x00 视为空白字符，需要先 replace 再 strip
+    输入参数：raw_bytes: bytes，从 all.sch 定长字段读出的原始字节
+    返回值：str，清洗并解码后的名称；若传入非 bytes 则直接 str() + strip()
+    """
+    if not isinstance(raw_bytes, bytes):
+        return str(raw_bytes).strip()
+    # 先移除 null 字节（\\x00），Python str.strip 不处理它，会导致解码后终端显示乱码
+    cleaned = raw_bytes.replace(b'\x00', b'').strip()
+    return cleaned.decode('utf-8')
+
+
 def _to_display_text(value):
     """
     功能描述：将 bytes 或其他类型统一转换为适合打印显示的字符串
+             bytes 类型会先清除 \\x00 再解码，避免 null 字节导致终端显示异常
     输入参数：value: any，待显示的数据
     返回值：str，转换后的文本
     """
     if isinstance(value, bytes):
-        return value.decode('utf-8').strip()
+        # 先移除 null 字节再解码，防止未初始化条目（全 \\x00）显示乱码
+        return value.replace(b'\x00', b'').decode('utf-8').strip()
     return str(value).strip()
 
 
@@ -190,18 +209,18 @@ class Schema(object):
             # 修改原因：支持删除 all.sch 后重新启动程序时自动重建空的 schema 文件
             open(Schema.fileName, 'wb').close()
         # Schema 类的内存对象
-        self.fileObj = open(Schema.fileName, 'rb+')  # in binary format
+        self.fileObj = open(Schema.fileName, 'rb+')   # 二进制读写模式打开
 
-        # read all data from schema file读取
+        # ── 读取整个 all.sch 到内存缓冲区 ──
         bufLen = META_HEAD_SIZE + TABLE_NAME_HEAD_SIZE + MAX_FIELD_SECTION_SIZE  # the length of metahead, table name entries and fieldName sections
-        buf = ctypes.create_string_buffer(bufLen)
-        buf = self.fileObj.read(bufLen)
+        buf = ctypes.create_string_buffer(bufLen)  # 分配定长 C 缓冲区，所有字节初始化为 \x00
+        buf = self.fileObj.read(bufLen)  # 一次性读入全部内容
 
-        #the following is to print the content of the buffer打印
+         # ══ 分支 1：all.sch 文件存在但里面没有数据，则写入初始化的 metaHead，创建一个空的 Header ══
         buf.strip()
         if len(buf) == 0:  # for the first time, there is nothing in the schema file
             self.body_begin_index = BODY_BEGIN_INDEX
-            buf = struct.pack('!?ii', False, 0, self.body_begin_index)  # is_stored, tablenum,offset
+            buf = struct.pack('!?ii', False, 0, self.body_begin_index)  # is_stored, tablenum,offset  
 
             self.fileObj.seek(0)
             self.fileObj.write(buf)
@@ -218,12 +237,12 @@ class Schema(object):
 
             print ('metaHead of schema has been written to all.sch and the Header ojbect created')
 
-        else:  # there is something in the schema file
+        else: # ══ 分支 2：all.sch文件存在且有表数据，则逐表解码 tableNameHead 区和 body 区的定长二进制记录，把每一张表的表定义、所有字段定义（名/类型/长度）还原成 Python 对象，填入 Header ══
 
             print("\n" + "=" * 50)
             print("  元数据头（metaHead）解析")
             print("=" * 50)
-            # in the following ? denotes bool type and  i denotes int type
+            # ── 解析 metaHead（前 9 字节） ──
             isStored, tempTableNum, tempOffset = struct.unpack_from('!?ii', buf, 0)
 
             print("  isStored = {0}  |  tableNum = {1}  |  body offset = {2}".format(
@@ -234,18 +253,20 @@ class Schema(object):
             nameList = []
             fieldsList = {}
 
-            if isStored == False:  # only the meta head exists, but there is no table information in the schema file
+            if isStored == False:  # metaHead 写了但无表
                 self.headObj = head_db.Header(nameList, fieldsList, False, 0, BODY_BEGIN_INDEX)
                 print("  (无表模式数据)")
 
-            else:  # there is information of some tables
+            else:   # 至少有一张表
 
                 print("  表列表解析（共 {0} 张表）".format(tempTableNum))
                 print("-" * 50)
 
-                # the following is to fetch the tableNameHead from the buffer
+                # ── 遍历 tableNameHead：每 18 字节一个表条目 ──
+                valid_table_count = 0  # 实际有效表计数，跳过未初始化的空条目
                 for i in range(tempTableNum):
                     # fetch the table name in tableNameHead
+                      # 读出 表名(10B)、字段数(4B)、body偏移(4B)
                     tempName, = struct.unpack_from('!10s', buf,
                                                    META_HEAD_SIZE + i * TABLE_NAME_ENTRY_LEN)
                     # fetch the number of fields in the table in tableNameHead
@@ -255,25 +276,36 @@ class Schema(object):
                                                   META_HEAD_SIZE + i * TABLE_NAME_ENTRY_LEN
                                                   + 10 + struct.calcsize('i'))
 
-                    # 显示时 strip 去掉定长存储的补位空格
+                    # 使用 _clean_name 剔除空格
+                    display_table_name = _clean_name(tempName)
+                    # 表名清洗后为空 → 该条目从未被写入（全 \\x00），跳过
+                    if len(display_table_name) == 0:
+                        continue
+
+                    valid_table_count += 1
                     print("  [{0}] 表名: {1}  |  字段数: {2}  |  body偏移: {3}".format(
-                        i + 1, tempName.strip().decode('utf-8'), tempNum, tempPos))
+                        valid_table_count, display_table_name, tempNum, tempPos))
 
                     tempNameMix = (tempName.strip(), tempNum, tempPos)
                     nameList.append(tempNameMix)  # It is a triple
 
-                    # the following is to fetch field information from body section
+                    # ── 遍历 body 区该表的字段定义：每条 18 字节 ──
                     if tempNum > 0:
                         fields = []
                         print("        字段名         类型  长度")
                         print("        " + "-" * 28)
                         for j in range(tempNum):
+                             # 读出 字段名(10B)、类型(4B)、长度(4B)
                             tempFieldName, tempFieldType, tempFieldLength = struct.unpack_from(
                                 '!10sii', buf, tempPos + j * MAX_FIELD_LEN)
                             # 类型码 → 可读类型名
                             type_label = FIELD_TYPE_NAME_MAP.get(tempFieldType, str(tempFieldType))
+                            # 清洗字段名，若为空则显示占位符
+                            display_field_name = _clean_name(tempFieldName)
+                            if len(display_field_name) == 0:
+                                display_field_name = '(未命名)'
                             print("        {0:12s}  {1:4s}  {2:4d}".format(
-                                tempFieldName.strip().decode('utf-8'), type_label, tempFieldLength))
+                                display_field_name, type_label, tempFieldLength))
                             tempFieldTuple = (tempFieldName, tempFieldType, tempFieldLength)
                             fields.append(tempFieldTuple)
 
@@ -284,7 +316,7 @@ class Schema(object):
                 print("  Header 内存对象构造完成")
                 print("=" * 50)
 
-                # the main memory structure for schema is constructed
+                # 把从 all.sch 中反序列化得到的四个数据（表名条目列表，字段字典，all.sch 中有表数据，表总数，body 区下一个空闲偏移量），传入 head_db.Header 的构造器，创建出一个内存中的模式头对象，赋值给 self.headObj
                 self.headObj = head_db.Header(nameList, fieldsList, True, tempTableNum, tempOffset)
 
     # ----------------------------
@@ -397,7 +429,7 @@ class Schema(object):
 
     def reset_schema_file(self):
         """
-        功能描述：重置当前 all.sch 的内容并立即重建一个空的 schema 文件，供“删除所有表”流程调用
+        功能描述：重置当前 all.sch 的内容并立即重建一个空的 schema 文件，供“删除所有表”分支调用
         输入参数：无
         返回值：bool，重建成功返回 True
         异常处理：无；若旧文件不存在则直接创建新文件
@@ -419,11 +451,6 @@ class Schema(object):
     #输入参数：tableName: str/bytes，表名；fieldList: list[(str,int,int)]，字段三元组列表
     # -------------------------------
     def appendTable(self, tableName, fieldList):
-        """
-        功能：向 all.sch 追加新表模式——先写字段到 body 区，再写表名条目到 tableNameHead，
-              最后更新内存 Header 并立即 flush_meta_head() 刷盘。
-        输入参数：tableName: str/bytes，表名；fieldList: list[(str,int,int)]，字段三元组。
-        """
         print("appendTable begins to execute")
         tableName = tableName.strip()
 
@@ -454,6 +481,14 @@ class Schema(object):
             for i in range(len(fieldList)):
                 #Python的序列解包（Tuple Unpacking）:只要 fieldList[i] 是一个长度为 3 的可迭代对象（比如三元组、列表），就可以直接把它的三个元素分别赋值给三个变量
                 (fieldName,fieldType,fieldLength)=fieldList[i]
+                # 校验字段名非空，防止空字符串被补位成纯空格存入磁盘
+                if isinstance(fieldName, bytes):
+                    check_name = fieldName.replace(b'\x00', b'').strip()
+                else:
+                    check_name = fieldName.strip()
+                if len(check_name) == 0:
+                    print('第 {0} 个字段名为空，创建失败'.format(i + 1))
+                    return False
                 # 先处理字段名
 
                 if len(fieldName.strip()) < MAX_FIELD_NAME_LEN:

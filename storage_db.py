@@ -307,7 +307,8 @@ class Storage(object):
             input_value = input(prompt_text).strip()
             if input_value in [str(i) for i in range(9)]:
                 return int(input_value)
-            print('field type must be one of 0, 1, 2 or 3.')
+            print('field type must be one of 0, 1, 2, 3, 4, 5, 6, 7 or 8.')
+            print('  (0:char 1:varchar 2:int 3:bool 4:float 5:bit 6:bit varying 7:date 8:time)')
 
     def _read_field_name(self, field_index):
         """

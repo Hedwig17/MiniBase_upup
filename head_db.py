@@ -71,7 +71,8 @@ class Header(object):
             print("the length of tableNames is", len(self.tableNames))
             for i in range(len(self.tableNames)):
                 print(self.tableNames[i])
-                print(self.tableFields[i])
+                # tableFields 是以表名(bytes)为键的字典，不能用整数索引访问
+                print(self.tableFields[self.tableNames[i][0]])
 
     #-----------------------------
     # 在缓冲区池中查找指定磁盘块号对应的缓存块
