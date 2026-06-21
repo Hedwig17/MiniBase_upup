@@ -162,6 +162,10 @@ def query_without_index(schema_obj, s_id_value):
 
 def query_with_index_reuse(idx, s_id_value):
     """有索引查询（复用 Index 对象）"""
+    from index_db import reset_io_stats, print_io_stats
+    
+    reset_io_stats()  # 重置计数
+    print(f"\n开始索引查询: s_id = '{s_id_value}'")
     start_time = time.time()
 
     positions = idx.search(s_id_value)
@@ -181,6 +185,7 @@ def query_with_index_reuse(idx, s_id_value):
             results.append(record)
 
     elapsed = time.time() - start_time
+    print_io_stats() 
 
     del storage
     return results, elapsed
@@ -278,7 +283,7 @@ def run_performance_test(schema_obj):
     print("=" * 70)
 
     # 测试精确查询
-    test_s_id = "S0000001"
+    test_s_id = "S0001101"
 
     print(f"\n【精确查询测试】s_id = '{test_s_id}'")
     print("-" * 50)

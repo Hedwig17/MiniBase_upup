@@ -66,6 +66,17 @@ def test():
 
     print (a,b)
 
+# index_db.py 顶部
+IO_READ_COUNT = 0
+IO_WRITE_COUNT = 0
+
+def reset_io_stats():
+    global IO_READ_COUNT, IO_WRITE_COUNT
+    IO_READ_COUNT = 0
+    IO_WRITE_COUNT = 0
+
+def print_io_stats():
+    print(f"磁盘读取次数: {IO_READ_COUNT}, 磁盘写入次数: {IO_WRITE_COUNT}")
 
     
 
@@ -225,9 +236,7 @@ class Index(object):
         current_ptr = leaf_ptr
         
         while current_ptr != SPECIAL_INDEX_BLOCK_PTR and current_ptr > 0:
-            buf = ctypes.create_string_buffer(BLOCK_SIZE)
-            self.f_handle.seek(current_ptr * BLOCK_SIZE)
-            self.f_handle.readinto(buf)
+            buf = self._read_block(current_ptr)
             
             _, node_type, num_keys = struct.unpack_from('!iii', buf, 0)
             if node_type != LEAF_NODE_TYPE:
@@ -298,9 +307,7 @@ class Index(object):
         current_ptr = leaf_ptr
 
         while current_ptr != SPECIAL_INDEX_BLOCK_PTR and current_ptr > 0:
-            buf = ctypes.create_string_buffer(common_db.BLOCK_SIZE)
-            self.f_handle.seek(current_ptr * common_db.BLOCK_SIZE)
-            self.f_handle.readinto(buf)
+            buf = self._read_block(current_ptr)
 
             _, node_type, num_keys = struct.unpack_from('!iii', buf, 0)
             if node_type != LEAF_NODE_TYPE:
@@ -517,11 +524,7 @@ class Index(object):
                      # 下降内部结点层（除最后一层叶子结点外）
                     while(temp_count<self.num_of_levels-1):# to search through the internal nodes
                         # 读取当前内部结点块
-                        current_index_block=ctypes.create_string_buffer(common_db.BLOCK_SIZE)
-                        read_pos=next_node_ptr*common_db.BLOCK_SIZE # the begining of the target block
-                        
-                        self.f_handle.seek(read_pos)
-                        current_index_block=self.f_handle.read(common_db.BLOCK_SIZE)
+                        current_index_block = self._read_block(next_node_ptr)
                         # 解析结点类型和键个数
                         current_node_id,current_node_type,current_num_of_keys=struct.unpack_from('!iii',current_index_block,0)
 
@@ -555,12 +558,7 @@ class Index(object):
                         
                     # now it is at the leaf node
                     # # 到达叶子结点，读取该叶子块
-                    current_index_block=ctypes.create_string_buffer(common_db.BLOCK_SIZE)
-                    read_pos=next_node_ptr*common_db.BLOCK_SIZE    # where the leaf node lies
-                    self.f_handle.seek(read_pos)
-                    
-                    current_index_block = ctypes.create_string_buffer(common_db.BLOCK_SIZE)
-                    self.f_handle.readinto(current_index_block)  # 直接读入缓冲区
+                    current_index_block = self._read_block(next_node_ptr)
                     current_node_type,current_num_of_keys=struct.unpack_from('!ii',current_index_block,struct.calcsize('!i'))
                     
                     if current_node_type==LEAF_NODE_TYPE:# it is leaf node
@@ -596,9 +594,7 @@ class Index(object):
                             struct.pack_into('!i',current_index_block,8,current_num_of_keys)
                             
 
-                            self.f_handle.seek(read_pos)
-                            self.f_handle.write(current_index_block)
-                            self.f_handle.flush()       
+                            self._write_block(next_node_ptr, current_index_block)      
                             #print(f"After insert, leaf {next_node_ptr} has {current_num_of_keys} keys:")
                             keys_in_leaf = []
                             for i in range(current_num_of_keys):
@@ -646,9 +642,7 @@ class Index(object):
         level = 0
         
         while level < self.num_of_levels - 1:
-            buf = ctypes.create_string_buffer(BLOCK_SIZE)
-            self.f_handle.seek(next_node_ptr * BLOCK_SIZE)
-            self.f_handle.readinto(buf)
+            buf = self._read_block(next_node_ptr)
             
             node_id, node_type, num_keys = struct.unpack_from('!iii', buf, 0)
             if node_type != INTERNAL_NODE_TYPE:
@@ -699,18 +693,14 @@ class Index(object):
 
         parent_block_id, child_idx = path_stack.pop()
         # 读取父结点
-        parent_buf = ctypes.create_string_buffer(BLOCK_SIZE)
-        self.f_handle.seek(parent_block_id * BLOCK_SIZE)
-        self.f_handle.readinto(parent_buf)
+        parent_buf = self._read_block(parent_block_id)
 
         # 尝试插入
         self.insert_into_internal_node(parent_buf, new_key, new_right_ptr, child_idx)
         num_keys= struct.unpack_from('!i', parent_buf,struct.calcsize('!ii') )[0]
         if num_keys<MAX_NUM_OF_KEYS:
             # 未满，写回磁盘
-            self.f_handle.seek(parent_block_id * BLOCK_SIZE)
-            self.f_handle.write(parent_buf.raw)
-            self.f_handle.flush()
+            self._write_block(parent_block_id, parent_buf)
             return
         else:
             # 父结点已满，需要分裂
@@ -836,11 +826,8 @@ class Index(object):
         struct.pack_into('!i', new_buf, BLOCK_SIZE - 4, old_last_ptr)
 
         # 写回磁盘
-        self.f_handle.seek(next_node_ptr * BLOCK_SIZE)
-        self.f_handle.write(original_buf.raw)
-        self.f_handle.seek(new_block_id * BLOCK_SIZE)
-        self.f_handle.write(new_buf.raw)
-        self.f_handle.flush()
+        self._write_block(next_node_ptr, original_buf.raw)
+        self._write_block(new_block_id, new_buf.raw)
 
         # 返回新块号和上浮的键（供父结点插入使用）
         up_key = key_list[split]
@@ -912,11 +899,8 @@ class Index(object):
         struct.pack_into('!i', new_buf, BLOCK_SIZE - 4, old_last_ptr)
 
         # 写回磁盘
-        self.f_handle.seek(current_block_id * BLOCK_SIZE)
-        self.f_handle.write(original_buf.raw)
-        self.f_handle.seek(new_block_id * BLOCK_SIZE)
-        self.f_handle.write(new_buf.raw)
-        self.f_handle.flush()
+        self._write_block(current_block_id, original_buf.raw)
+        self._write_block(new_block_id, new_buf.raw)
 
         # 返回新块号和上浮的键（供父结点插入使用）
         return new_block_id, key_list[left_keys]
@@ -950,18 +934,16 @@ class Index(object):
         off = struct.calcsize('!iii') 
         struct.pack_into('!10si', new_buf, off, new_key,current_node_id)
         struct.pack_into('!i',new_buf,common_db.BLOCK_SIZE-4,new_right_ptr)
-        self.f_handle.seek(new_block_id * BLOCK_SIZE)
-        self.f_handle.write(new_buf.raw)
-        self.f_handle.flush()
+        self._write_block(new_block_id, new_buf.raw)
         # 更新元数据：新根块号，树高度+1
         self.root_node_ptr = new_block_id
         self.num_of_levels += 1
         self.has_root = True
         # 将元数据写回块0
-        self.f_handle.seek(0)
+        
         meta_buf = ctypes.create_string_buffer(BLOCK_SIZE)
         struct.pack_into('!i?ii', meta_buf, 0, 0, True, self.num_of_levels, self.root_node_ptr)
-        self.f_handle.write(meta_buf)
+        self._write_block(0, meta_buf)
         self.f_handle.flush()
 
     #-----------------------------
@@ -1255,6 +1237,9 @@ class Index(object):
     #       bytearray : 长度为 BLOCK_SIZE
     #--------------------------------
     def _read_block(self, block_id):
+        global IO_READ_COUNT
+        IO_READ_COUNT += 1
+        print(f"  [IO] 读取磁盘块 {block_id} (累计: {IO_READ_COUNT})") 
         buf = bytearray(BLOCK_SIZE)
         self.f_handle.seek(block_id * BLOCK_SIZE)
         self.f_handle.readinto(buf)
@@ -1269,6 +1254,9 @@ class Index(object):
     #       None
     #-------------------------------- 
     def _write_block(self, block_id, buf):
+        global IO_WRITE_COUNT
+        IO_WRITE_COUNT += 1
+        print(f"  [IO] 写入磁盘块 {block_id} (累计: {IO_WRITE_COUNT})")
         self.f_handle.seek(block_id * BLOCK_SIZE)
         self.f_handle.write(buf)
         self.f_handle.flush()
@@ -1278,11 +1266,9 @@ class Index(object):
     # 元数据结构: block_id(4B) | has_root(1B) | num_of_levels(4B) | root_node_ptr(4B)
     #--------------------------------
     def _load_meta(self):
-        self.f_handle.seek(0)
-        meta_buf = self.f_handle.read(common_db.BLOCK_SIZE)
+        meta_buf = self._read_block(0)          # 使用 _read_block 计数
         if len(meta_buf) >= struct.calcsize('!i?ii'):
-            _, self.has_root, self.num_of_levels, self.root_node_ptr = struct.unpack_from(
-                '!i?ii', meta_buf, 0)
+            _, self.has_root, self.num_of_levels, self.root_node_ptr = struct.unpack_from('!i?ii', meta_buf, 0)
         else:
             self.has_root = False
             self.num_of_levels = 0
@@ -1292,12 +1278,9 @@ class Index(object):
     # 将内存中的元数据写回磁盘块 0
     #--------------------------------
     def _write_meta(self):
-        meta_buf = ctypes.create_string_buffer(common_db.BLOCK_SIZE)
-        struct.pack_into('!i?ii', meta_buf, 0,
-                        0, self.has_root, self.num_of_levels, self.root_node_ptr)
-        self.f_handle.seek(0)
-        self.f_handle.write(meta_buf)
-        self.f_handle.flush()
+        meta_buf = bytearray(BLOCK_SIZE)          # 可使用 bytearray
+        struct.pack_into('!i?ii', meta_buf, 0, 0, self.has_root, self.num_of_levels, self.root_node_ptr)
+        self._write_block(0, meta_buf)
 
 
     #-----------------------------
@@ -1392,26 +1375,6 @@ class Index(object):
             node = struct.unpack_from('!i', buf, BLOCK_SIZE - 4)[0]
 
     
-                    
-'''
-#TODO:
-    实现多种索引：
-        顺序文件 + 稀疏/稠密索引（PDF 第一部分）
-
-        静态散列（哈希）（PDF 第四部分）
-
-        可扩展散列或线性散列（PDF 动态散列）  
-
-    对比性能：
-        插入性能：记录每次插入的磁盘 I/O 次数（索引文件读写块数）和 CPU 时间。
-
-        查询性能：对精确匹配和范围查询（B+ 树擅长范围，哈希不擅长），测量 I/O 次数。
-
-        存储空间：索引文件最终大小。
-
-''' 
-
- 
 
 
 if __name__ == '__main__':

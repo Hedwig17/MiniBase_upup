@@ -1,7 +1,7 @@
 # -----------------------------
 # parser_db.py
 # author: Jingyu Han   hjymail@163.com
-# modified by:但芸妍
+# modified by:但芸妍，郑许博雅
 # -------------------------------
 # the module is to construct a syntax tree for a "select from where" SQL clause
 # the output is a syntax tree
@@ -44,6 +44,7 @@ def check_syn_tree(syn_tree):
 
 # ============================================================
 # Author: 但芸妍
+# Modified by: 郑许博雅
 # 新增：Statement 顶层规则（新增，支持多种语句）
 # ============================================================
 
@@ -386,17 +387,15 @@ def p_create_idx_stmt(t):
 # ============================================================
 # Author: 郑许博雅
 # 新增：RANGE SEARCH 语句
-# 语法：SELECT * FROM table_name WHERE column_name BETWEEN start_key AND end_key
+# 语法： # RANGE FROM 'S0001' TO 'S0010' ON students (s_id)
 # ============================================================
 
 def p_range_search_stmt(t):
-    '''RangeSearchStmt : SELECT STAR FROM TCNAME WHERE TCNAME BETWEEN CONSTANT AND CONSTANT'''
-    # t[1]=SELECT, t[2]=STAR, t[3]=FROM, t[4]=table_name, t[5]=WHERE, 
-    # t[6]=column_name, t[7]=BETWEEN, t[8]=start_key, t[9]=AND, t[10]=end_key
-    table_name = t[4]
-    column_name = t[6]
-    start_key = t[8]
-    end_key = t[10]
+    '''RangeSearchStmt : RANGE FROM CONSTANT TO CONSTANT ON TCNAME LPAREN TCNAME RPAREN'''
+    start_key = t[3]
+    end_key = t[5]
+    table_name = t[7]
+    column_name = t[9]
     t[0] = common_db.Node('RangeSearchStmt', [start_key, end_key, table_name, column_name])
 
 

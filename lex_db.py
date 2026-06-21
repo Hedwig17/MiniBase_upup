@@ -1,7 +1,7 @@
 # -------------------------------
 # lex_db.py
 # author: Jingyu Han hjymail@163.com
-# modified by:但芸妍
+# modified by:但芸妍,郑许博雅
 # --------------------------------------------
 # the module is responsible for
 # (1) defining tokens used for parsing SQL statements
@@ -23,16 +23,17 @@ import common_db
 import re  # 添加
 
 # Author: 但芸妍
-# 修改：实验2需要支持 * 通配符，添加 STAR token
-# 修改：添加 INDEX, ON token 支持 CREATE INDEX 语句
-# 修改：添加BETWEEN 支持范围查询语句
 # 新增：添加新的token
+# 修改：实验2需要支持 * 通配符，添加 STAR token
+# Modified by: 郑许博雅
+# 修改：添加 INDEX, ON token 支持 CREATE INDEX 语句
+# 修改：添加RANGE ,TO支持范围查询语句
 tokens = ('SELECT', 'FROM', 'WHERE', 'AND', 'TCNAME', 'EQX', 'COMMA', 'CONSTANT', 'SPACE', 'STAR',
           'CREATE', 'TABLE', 'INSERT', 'INTO', 'VALUES', 'DELETE', 'UPDATE', 'SET', 'DROP',
           'LPAREN', 'RPAREN', 'INDEX', 'ON',
           'CHAR', 'VARCHAR', 'INT', 'INTEGER', 'FLOAT', 'REAL',
           'BIT', 'VARBIT', 'DATE', 'TIME',
-          'BETWEEN')  
+          'BETWEEN','RANGE', 'TO')  
 
 def t_CREATE(t):
     r'create'
@@ -167,6 +168,14 @@ def t_STAR(t):
 def t_CONSTANT(t):
     # r'\d+|\'\w+\''
     r"\d+|'[^']*'"  # 修改：匹配空格
+    return t
+
+def t_RANGE(t):
+    r'range'
+    return t
+
+def t_TO(t):
+    r'to'
     return t
 
 def t_SPACE(t):
